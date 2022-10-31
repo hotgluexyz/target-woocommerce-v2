@@ -38,4 +38,4 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 # CLI declaration
-target-woocommerce-v2 = 'target_woocommerce.target:TargetWooCommerce.cli'
+target-woocommerce-v2 = 'target_woocommerce.target:TargetWoocommerce.cli'
