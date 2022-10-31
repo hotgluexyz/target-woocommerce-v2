@@ -1,192 +1,233 @@
-"""Woocommerce target sink class, which handles writing streams."""
-from hotglue_models_ecommerce.ecommerce import SalesOrder, Product
-from target_woocommerce.local_models import UpdateInventory
+"""WooCommerce target sink class, which handles writing streams."""
 
-from target_woocommerce.client import WoocommerceSink
-from backports.cached_property import cached_property
+from __future__ import annotations
+
+import html
+import json
+
+import requests
+from random_user_agent.user_agent import UserAgent
+from singer_sdk.exceptions import FatalAPIError, RetriableAPIError
+from singer_sdk.sinks import RecordSink
+
+from target_woocommerce.mapper import orders_from_unified, products_from_unified
 
 
-# class SalesOrdersSink(WoocommerceSink):
-#     """Woocommerce order target sink class."""
+class WooCommerceSink(RecordSink):
+    """WooCommerce target sink class."""
 
-#     endpoint = "/orders/create"
-#     unified_schema = SalesOrder
-#     name = SalesOrder.Stream.name
+    user_agents = UserAgent(software_engines="blink", software_names="chrome")
+    products = []
+    product_ids = {}
 
-#     def preprocess_record(self, record: dict, context: dict) -> dict:
-#         record = self.validate_input(record)
-        
-#         return self.validate_output(mapping)
+    @property
+    def url_base(self) -> str:
+        """Return the API URL root, configurable via tap settings."""
+        site_url = self.config["site_url"]
+        return f"{site_url}/wp-json/wc/v3/"
 
-class UpdateInventorySink(WoocommerceSink):
-    """Woocommerce order target sink class."""
+    @property
+    def authenticator(self):
+        """Return a new authenticator object."""
+        return (self.config.get("consumer_key"), self.config.get("consumer_secret"))
 
-    endpoint = "products/{id}"
-    unified_schema = UpdateInventory
-    name = UpdateInventory.Stream.name
+    @property
+    def http_headers(self):
+        headers = {}
+        headers["Content-Type"] = "application/json"
+        headers["User-Agent"] = self.user_agents.get_random_user_agent().strip()
+        return headers
 
-    @cached_property
-    def products(self):
-        endpoint = "products"
-        fields = ["id", "name", "sku", "stock_quantity"]
-        return self.get_reference_data(endpoint, fields)
-
-    def preprocess_record(self, record: dict, context: dict) -> dict:
-        record = self.validate_input(record)
-
-        product_id = record.get("id")
-        if product_id:
-            product = next((p for p in self.products if p["id"]==product_id), None)
-        elif record.get("sku"):
-            sku = record.get("sku")
-            product = next((p for p in self.products if p["sku"]==sku), None)
-        elif record.get("name"):
-            name = record.get("name")
-            product = next((p for p in self.products if p["name"]==name), None)
-
-        if product:
-            in_stock = True
-            current_stock = product.get("stock_quantity", 0)
-            if record["operation"] == "subtract":
-                current_stock = current_stock - int(record["quantity"])
-            else:
-                current_stock = current_stock + int(record["quantity"])
-
-            if current_stock <= 0:
-                in_stock = False
-
-            product.update(
-                {
-                    "stock_quantity": current_stock,
-                    "manage_stock": True,
-                    "in_stock": in_stock,
-                }
-            )
+    def get_woo_products(self):
+        if len(self.product_ids) > 0:
+            return self.product_ids
         else:
-            raise Exception("Could not find product with through id, sku or name.")
+            n = 1
 
-        return self.validate_output(product)
-    
+            params = {"per_page": 100, "order": "asc", "page": n}
+
+            auth = self.authenticator
+            url = f"{self.url_base}products"
+            resp = True
+            products = []
+            while resp:
+                resp = requests.get(
+                    url=url, auth=auth, params=params, headers=self.http_headers
+                )
+                self.validate_response(resp)
+                resp = resp.json()
+                n += 1
+                params.update({"page": n})
+                products += resp
+
+            product_ids = {}
+
+            self.product_ids = product_ids
+            self.products = products
+            return self.product_ids
+
+    def get_product_categories(self) -> dict:
+
+        auth = self.authenticator
+        url = f"{self.url_base}products/categories"
+        resp = requests.get(url=url, auth=auth)
+        self.validate_response(resp)
+        resp = resp.json()
+        return {html.unescape(i["name"]): i["id"] for i in resp}
+
+    def update_product_categories(self, category_name) -> None:
+
+        if category_name == None:
+            return {}
+        auth = self.authenticator
+        url = f"{self.url_base}products/categories"
+        resp = requests.post(url=url, auth=auth, data={"name": category_name})
+        self.validate_response(resp)
+
+    def find_product(self, filter_key, filter_val):
+        ret_product = {}
+        if len(self.products) > 0:
+            for product in self.products:
+                if filter_key in product:
+                    if product[filter_key] == filter_val:
+                        ret_product = product
+                        break
+        return ret_product
+
     def process_record(self, record: dict, context: dict) -> None:
-        """Process the record."""
-        endpoint = self.endpoint.format(id=record["id"])
-        response = self.request_api("PUT", endpoint, request_data=record)
-        product_response = response.json()
-        id = product_response.get("id")
-        self.logger.info(f"{self.name} updated for id: {id}")
-
-
-class ProductSink(WoocommerceSink):
-    """Woocommerce order target sink class."""
-
-    endpoint = "products"
-    unified_schema = Product
-    name = Product.Stream.name
-
-    @cached_property
-    def categories(self):
-        endpoint = "products/categories"
-        fields = ["id", "name", "slug"]
-        return self.get_reference_data(endpoint, fields)
-
-    @cached_property
-    def attributes(self):
-        endpoint = "products/attributes"
-        fields = ["id", "name", "slug"]
-        return self.get_reference_data(endpoint, fields)
-
-    def preprocess_record(self, record: dict, context: dict) -> dict:
-        record = self.validate_input(record)
-
-        prd_type = "variable" if record.get("options") else "simple"
-        mapping = {
-            "name": record["name"],
-            "description": record.get("description"),
-            "short_description": record.get("short_description"),
-            "type": prd_type,
+        product = None
+        streams = {
+            "Products": "products",
+            "SalesOrders": "orders",
+            "UpdateInventory": "products",
         }
-        mapping["images"] = [{"src": i} for i in record.get("image_urls", [])]
+        method = "POST"
+        # Products
+        if self.stream_name == "Products":
+            record = products_from_unified(record)
 
-        if record.get("category"):
-            ctg = record["category"]
-            if ctg.get("id"):
-                mapping["categories"] = [{"id": ctg["id"]}]
-            else:
-                ctg = [{"id": c["id"]} for c in self.categories if c["name"]==ctg["name"]]
-                mapping["categories"] = ctg
+            if not context.get("product_categories"):
+                context["product_categories"] = self.get_product_categories()
 
-        if prd_type == "variable":
-            mapping["variations"] = []
-            for variant in record["variants"]:
-                product_var = {
-                    "sku": variant.get("sku"),
-                    "regular_price": str(variant.get("price")),
-                    "manage_stock": True,
-                    "stock_quantity": variant.get("available_quantity")
-                }
-                product_var["attributes"] = []
-                for option in variant["options"]:
-                    product_var["attributes"].append(dict(name=option["name"], option=option["value"]))
-                mapping["variations"].append(product_var)
-            # Process attributes
-            variant_options = []
-            for variant in record["variants"]:
-                variant_options += variant["options"]
-            attributes = []
-            default_attributes = []
-            for option in record["options"]:
-                options = [v["value"] for v in variant_options if v["name"]==option]
-                if not options:
-                    continue
-                default_attribute = dict(option=options[0])
-                attribute = {
-                    "position": 0,
-                    "visible": False,
-                    "variation": True,
-                    "options": options
-                }
-                id = next((a["id"] for a in self.attributes if a["name"]==option), None)
-                if id:
-                    attribute["id"] = id
-                    default_attribute["id"] = id
+            if not record.get("categories") in context["product_categories"]:
+                self.update_product_categories(record.get("categories"))
+                context["product_categories"] = self.get_product_categories()
+            elif record.get("categories") is not None:
+                record["categories"] = [
+                    {"id": context["product_categories"][record["categories"]]}
+                ]
+
+        # Sales Orders
+        if self.stream_name == "SalesOrders":
+            record = orders_from_unified(record)
+
+            products = self.get_woo_products()
+
+            record_line_items = record["line_items"]
+
+            record_line_items_ = []
+            for i in record_line_items:
+                item = dict(i)
+                # find product by id, sku or name
+                if i.get("product_id") and len(i["product_id"]) > 0:
+                    product = self.find_product("id", int(i["product_id"]))
+                elif i.get("sku") and len(i["sku"]) > 0:
+                    product = self.find_product("sku", i["sku"])
+                elif i.get("product_name") and len(i["product_name"]) > 0:
+                    product = self.find_product("name", i["product_name"])
                 else:
-                    attribute["name"] = option
-                    default_attribute["name"] = option
-                attributes.append(attribute)
-                default_attributes.append(default_attribute)
+                    raise Exception(
+                        "Could not find line item product with through id, sku or name."
+                    )
 
-                mapping["attributes"] = attributes
-                mapping["default_attributes"] = default_attributes
-        else:
-            variant = record["variants"][0]
-            mapping.update({
-                    "sku": variant.get("sku"),
-                    "regular_price": str(variant.get("price")),
-                    "manage_stock": True,
-                    "stock_quantity": variant.get("available_quantity")
-                })
+                # All valid keys are found but no product
+                if len(product) == 0:
+                    raise Exception(
+                        "Could not find line item product with through id, sku or name."
+                    )
 
-        return self.validate_output(mapping)
-    
-    def process_variation(self, record: dict, prod_response) -> None:
-        """Process the record."""
-        product_id = prod_response["id"]
-        url = f"products/{product_id}/variations"
-        for variation in record["variations"]:
-            for attr in variation["attributes"]:
-                sel_attr = next(a for a in prod_response["attributes"] if a["name"]==attr["name"])
-                attr["id"] = sel_attr["id"]
-            response = self.request_api("POST", endpoint=url, request_data=variation)
-            variant_response = response.json()
-            self.logger.info(f"Created variant with id: {variant_response['id']}")
-    
-    def process_record(self, record: dict, context: dict) -> None:
-        """Process the record."""
-        response = self.request_api("POST", request_data=record)
-        product_response = response.json()
-        id = product_response.get("id")
-        self.logger.info(f"{self.name} created with id: {id}")
-        if record["type"] == "variable":
-            self.process_variation(record, product_response)
-        
-        
+                if product:
+                    record_line_items_.append(
+                        {"product_id": product["id"], "quantity": i["quantity"]}
+                    )
+
+            record.update({"line_items": record_line_items_})
+            record.update({"status":"completed"})
+
+        # Update Product Inventory
+        if self.stream_name == "UpdateInventory":
+            method = "PUT"
+            ids = self.get_woo_products()
+            # find product by id, sku or name
+            if record.get("id") and len(record["id"]) > 0:
+                product = self.find_product("id", int(record["id"]))
+            elif record.get("sku") and len(record["sku"]) > 0:
+                product = self.find_product("sku", record["sku"])
+            elif record.get("name") and len(record["name"]) > 0:
+                product = self.find_product("name", record["name"])
+            else:
+                raise Exception("Could not find product with through id, sku or name.")
+
+            if product:
+                in_stock = True
+                current_stock = product.get(
+                    "stock_quantity", 0
+                )  # Resulting in None, don't know why but results in error
+                # Ugly fix
+                if current_stock is None:
+                    current_stock = 0
+
+                if record["operation"] == "subtract":
+                    current_stock = current_stock - int(record["quantity"])
+                else:
+                    current_stock = current_stock + int(record["quantity"])
+
+                if current_stock <= 0:
+                    in_stock = False
+
+                product.update(
+                    {
+                        "stock_quantity": current_stock,
+                        "manage_stock": True,
+                        "in_stock": in_stock,
+                    }
+                )
+                record = product
+
+        url = f"{self.url_base}{streams[self.stream_name]}"
+
+        headers = self.http_headers
+        auth = self.authenticator
+        if method == "POST":
+            resp = requests.post(
+                url=url, headers=headers, auth=auth, data=json.dumps(record)
+            )
+            self.validate_response(resp)
+
+        if method == "PUT" and product is not None:
+            url = f"{url}/{product['id']}"
+            resp = requests.put(url=url, headers=headers, auth=auth, json=record)
+            self.validate_response(resp)
+
+    def validate_response(self, response: requests.Response) -> None:
+        """Validate HTTP response."""
+        if (
+            response.status_code >= 400
+            and self.config.get("ignore_server_errors")
+            and self.error_counter < 10
+        ):
+            self.error_counter += 1
+        elif 500 <= response.status_code < 600 or response.status_code in [429]:
+            msg = (
+                f"{response.status_code} Server Error: "
+                f"{response.reason} for path: {self.stream_name}"
+                f"{response.text}"
+            )
+            raise RetriableAPIError(msg)
+        elif 400 <= response.status_code < 500:
+            msg = (
+                f"{response.status_code} Client Error: "
+                f"{response.reason} for path: {self.stream_name}"
+                f"{response.text}"
+            )
+            raise FatalAPIError(msg)

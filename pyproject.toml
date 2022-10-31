@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "target-woocommerce"
-version = "0.0.3"
+version = "0.0.2"
 description = "`target-woocommerce` is a Singer target for WooCommerce, built with the Meltano SDK for Singer Targets."
 authors = ["arthur hotglue"]
 keywords = [
@@ -14,8 +14,6 @@ python = "<3.11,>=3.7.1"
 requests = "^2.25.1"
 singer-sdk = "^0.9.0"
 random-user-agent = "^1.0.1"
-"backports.cached-property" = "^1.0.1"
-hotglue-models-ecommerce = { git = "https://gitlab.com/hotglue/hotglue-models-ecommerce.git", branch = "main"}
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.5"
