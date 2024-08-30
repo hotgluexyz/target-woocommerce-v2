@@ -202,14 +202,19 @@ class UpdateInventorySink(WoocommerceSink):
 
         product = None
         product_id = record.get("id")
+        product_sku = record.get("sku")
+        product_name = record.get("name")
         if product_id:
             product = next((p for p in self.products if p["id"] == product_id), None)
-        elif record.get("sku"):
-            sku = record.get("sku")
-            product = next((p for p in self.products if p["sku"] == sku), None)
-        elif record.get("name"):
-            name = record.get("name")
-            product = next((p for p in self.products if p["name"] == name), None)
+        elif product_sku:
+            product_list = [p for p in self.products if p["sku"]==product_sku]
+            if len(product_list) > 1:
+                self.logger.info(f"More than one product was found with sku {product_sku}, filtering product by name...")
+                product = next((p for p in product_list if p["name"] == product_name), None)
+            elif len(product_list) == 1:
+                product = product_list[0]
+        elif product_name:
+            product = next((p for p in self.products if p["name"] == product_name), None)
 
         if not product:
             # If it didn't work with main products, check the variants
@@ -217,25 +222,26 @@ class UpdateInventorySink(WoocommerceSink):
                 product = next(
                     (p for p in self.product_variants if p["id"] == product_id), None
                 )
-            elif record.get("sku"):
-                sku = record.get("sku")
+            elif product_sku:
+                product_list = [p for p in self.product_variants if p["sku"]==product_sku]
+                if len(product_list) > 1:
+                    self.logger.info(f"More than one product was found with sku {product_sku}, filtering product by name...")
+                    product = next((p for p in product_list if p["name"] == product_name), None)
+                elif len(product_list) == 1:
+                    product = product_list[0]
+            elif product_name:
                 product = next(
-                    (p for p in self.product_variants if p["sku"] == sku), None
-                )
-            elif record.get("name"):
-                name = record.get("name")
-                product = next(
-                    (p for p in self.product_variants if p["name"] == name), None
+                    (p for p in self.product_variants if p["name"] == product_name), None
                 )
 
-            if not product and record.get("name"):
+            if not product and product_name:
                 # Some items may vary on naming and special characters
                 product = next(
                     (
                         p
                         for p in self.product_variants
                         if self._get_alnum_string(p["name"])
-                        == self._get_alnum_string(name)
+                        == self._get_alnum_string(product_name)
                     ),
                     None,
                 )
@@ -260,6 +266,8 @@ class UpdateInventorySink(WoocommerceSink):
                     "in_stock": in_stock,
                 }
             )
+            # remove sku from payload to avoid duplicate sku issues
+            product.pop("sku", None)
         else:
             raise Exception(
                 f"Could not find product with through id, sku or name. Failing product: {record}"
