@@ -70,7 +70,7 @@ class WoocommerceSink(RecordSink, Rest):
                     self.request_api("GET", f"{fallback_url}{resp['id']}").json()
                 )
             else:
-                modified_response.append(response)
+                modified_response.append(resp)
         return modified_response
 
     def get_reference_data(self, stream, fields=None, filter={}, fallback_url=None):
