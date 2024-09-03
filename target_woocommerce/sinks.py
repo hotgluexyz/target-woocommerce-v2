@@ -207,14 +207,14 @@ class UpdateInventorySink(WoocommerceSink):
         if product_id:
             product = next((p for p in self.products if p["id"] == product_id), None)
         elif product_sku:
-            product_list = [p for p in self.products if p["sku"]==product_sku]
+            product_list = [p for p in self.products if p.get("sku")==product_sku]
             if len(product_list) > 1:
                 self.logger.info(f"More than one product was found with sku {product_sku}, filtering product by name...")
-                product = next((p for p in product_list if p["name"] == product_name), None)
+                product = next((p for p in product_list if p.get("name") == product_name), None)
             elif len(product_list) == 1:
                 product = product_list[0]
         elif product_name:
-            product = next((p for p in self.products if p["name"] == product_name), None)
+            product = next((p for p in self.products if p.get("name") == product_name), None)
 
         if not product:
             # If it didn't work with main products, check the variants
@@ -223,15 +223,15 @@ class UpdateInventorySink(WoocommerceSink):
                     (p for p in self.product_variants if p["id"] == product_id), None
                 )
             elif product_sku:
-                product_list = [p for p in self.product_variants if p["sku"]==product_sku]
+                product_list = [p for p in self.product_variants if p.get("sku")==product_sku]
                 if len(product_list) > 1:
                     self.logger.info(f"More than one product was found with sku {product_sku}, filtering product by name...")
-                    product = next((p for p in product_list if p["name"] == product_name), None)
+                    product = next((p for p in product_list if p.get("name") == product_name), None)
                 elif len(product_list) == 1:
                     product = product_list[0]
             elif product_name:
                 product = next(
-                    (p for p in self.product_variants if p["name"] == product_name), None
+                    (p for p in self.product_variants if p.get("name") == product_name), None
                 )
 
             if not product and product_name:
@@ -240,7 +240,7 @@ class UpdateInventorySink(WoocommerceSink):
                     (
                         p
                         for p in self.product_variants
-                        if self._get_alnum_string(p["name"])
+                        if self._get_alnum_string(p.get("name"))
                         == self._get_alnum_string(product_name)
                     ),
                     None,
