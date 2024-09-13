@@ -8,9 +8,6 @@ from typing import Dict, List, Optional
 
 from target_woocommerce.rest import Rest
 from singer_sdk.plugin_base import PluginBase
-import backoff
-import requests
-from singer_sdk.exceptions import RetriableAPIError
 
 
 class WoocommerceSink(RecordSink, Rest):
