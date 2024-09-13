@@ -29,6 +29,9 @@ class Rest:
         headers = {}
         headers["Content-Type"] = "application/json"
         headers.update({"Authorization": self.authenticator})
+        headers["User-Agent"] = self.user_agents.get_random_user_agent().strip()
+        if "user_agent" in self.config:
+            headers["User-Agent"] = self.config.get("user_agent")
         return headers
 
     @backoff.on_exception(
@@ -43,7 +46,6 @@ class Rest:
         """Prepare a request object."""
         url = self.url(endpoint)
         headers = self.http_headers
-        headers["User-Agent"] = self.user_agents.get_random_user_agent().strip()
 
         response = requests.request(
             method=http_method,

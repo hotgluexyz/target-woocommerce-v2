@@ -45,16 +45,6 @@ class WoocommerceSink(RecordSink, Rest):
     def base_url(self):
         site_url = self.config["site_url"].strip("/")
         return f"{site_url}/wp-json/wc/v3/"
-    
-    @property
-    def http_headers(self) -> dict:
-        """Return the http headers needed."""
-        headers = {}
-        headers["Content-Type"] = "application/json"
-        headers.update({"Authorization": self.authenticator})
-        if "user_agent" in self.config:
-            headers["User-Agent"] = self.config.get("user_agent")
-        return headers
 
     def url(self, endpoint=None):
         if not endpoint:
@@ -152,28 +142,3 @@ class WoocommerceSink(RecordSink, Rest):
             state["success"] = False
             self.latest_state["summary"][self.name]["fail"] += 1
         self.latest_state["bookmarks"][self.name].append(state)
-
-    @backoff.on_exception(
-        backoff.expo,
-        (RetriableAPIError, requests.exceptions.ReadTimeout),
-        max_tries=5,
-        factor=2,
-    )
-    def _request(
-        self, http_method, endpoint, params=None, request_data=None
-    ) -> requests.PreparedRequest:
-        """Prepare a request object."""
-        url = self.url(endpoint)
-        headers = self.http_headers
-        if "User-Agent" not in headers:
-            headers["User-Agent"] = self.user_agents.get_random_user_agent().strip()
-
-        response = requests.request(
-            method=http_method,
-            url=url,
-            params=params,
-            headers=headers,
-            json=request_data,
-        )
-        self.validate_response(response)
-        return response
