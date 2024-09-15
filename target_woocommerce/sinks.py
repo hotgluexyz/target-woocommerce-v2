@@ -247,8 +247,9 @@ class UpdateInventorySink(WoocommerceSink):
                 )
 
         if product:
+            _product = product.copy()
             in_stock = True
-            current_stock = product.get("stock_quantity", 0)
+            current_stock = _product.get("stock_quantity", 0)
             if record["operation"] == "subtract":
                 current_stock = current_stock - int(record["quantity"])
             if record["operation"] == "set":
@@ -259,7 +260,7 @@ class UpdateInventorySink(WoocommerceSink):
             if current_stock <= 0:
                 in_stock = False
 
-            product.update(
+            _product.update(
                 {
                     "stock_quantity": current_stock,
                     "manage_stock": True,
@@ -267,13 +268,13 @@ class UpdateInventorySink(WoocommerceSink):
                 }
             )
             # remove sku from payload to avoid duplicate sku issues
-            product.pop("sku", None)
+            _product.pop("sku", None)
         else:
             raise Exception(
                 f"Could not find product with through id, sku or name. Failing product: {record}"
             )
 
-        return self.validate_output(product)
+        return self.validate_output(_product)
 
     def process_record(self, record: dict, context: dict) -> None:
         """Process the record."""
