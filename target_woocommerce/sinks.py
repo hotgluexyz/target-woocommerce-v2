@@ -250,6 +250,8 @@ class UpdateInventorySink(WoocommerceSink):
             _product = product.copy()
             in_stock = True
             current_stock = _product.get("stock_quantity", 0)
+            self.logger.info(f"product with sku '{_product.get('sku')}' and id {_product['id']} current stock: {current_stock}, executing operation '{record['operation']}' with quantity {record['quantity']}")
+
             if record["operation"] == "subtract":
                 current_stock = current_stock - int(record["quantity"])
             if record["operation"] == "set":
@@ -290,7 +292,7 @@ class UpdateInventorySink(WoocommerceSink):
         response = self.request_api("PUT", endpoint, request_data=record)
         product_response = response.json()
         id = product_response.get("id")
-        self.logger.info(f"{self.name} updated for id: {id}")
+        self.logger.info(f"{self.name} updated for id: {id}, new stock: {record.get('stock_quantity')}.")
 
 
 class ProductSink(WoocommerceSink):
