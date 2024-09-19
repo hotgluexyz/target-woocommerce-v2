@@ -292,7 +292,7 @@ class UpdateInventorySink(WoocommerceSink):
         response = self.request_api("PUT", endpoint, request_data=record)
         product_response = response.json()
         id = product_response.get("id")
-        self.logger.info(f"{self.name} updated for id: {id}, new stock: {record.get('stock_quantity')}.")
+        self.logger.info(f"{self.name} updated for id: {id}, new stock: {product_response.get('stock_quantity')}.")
 
 
 class ProductSink(WoocommerceSink):
