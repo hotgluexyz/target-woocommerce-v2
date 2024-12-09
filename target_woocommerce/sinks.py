@@ -204,8 +204,14 @@ class UpdateInventorySink(WoocommerceSink):
         product_id = record.get("id")
         product_sku = record.get("sku")
         product_name = record.get("name")
+        # check product and variant id first
         if product_id:
             product = next((p for p in self.products if str(p["id"]) == str(product_id)), None)
+        if product_id and not product:
+            product = next(
+                (p for p in self.product_variants if str(p["id"]) == str(product_id)), None
+            )
+        # check main product sku
         if product_sku and not product:
             product_list = [p for p in self.products if p.get("sku")==product_sku]
             if len(product_list) > 1:
@@ -218,11 +224,7 @@ class UpdateInventorySink(WoocommerceSink):
 
         if not product:
             # If it didn't work with main products, check the variants
-            if product_id:
-                product = next(
-                    (p for p in self.product_variants if str(p["id"]) == str(product_id)), None
-                )
-            elif product_sku:
+            if product_sku:
                 product_list = [p for p in self.product_variants if p.get("sku")==product_sku]
                 if len(product_list) > 1:
                     self.logger.info(f"More than one product was found with sku {product_sku}, filtering product by name...")
@@ -249,7 +251,7 @@ class UpdateInventorySink(WoocommerceSink):
         if product:
             _product = product.copy()
             in_stock = True
-            current_stock = _product.get("stock_quantity", 0)
+            current_stock = _product.get("stock_quantity") or 0
             self.logger.info(f"product with sku '{_product.get('sku')}' and id {_product['id']} current stock: {current_stock}, executing operation '{record['operation']}' with quantity {record['quantity']}")
 
             if record["operation"] == "subtract":
