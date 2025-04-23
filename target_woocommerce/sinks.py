@@ -1,23 +1,11 @@
 """Woocommerce target sink class, which handles writing streams."""
 import re
-import json
-import hashlib
 
 from hotglue_models_ecommerce.ecommerce import SalesOrder, Product, OrderNote
 from target_woocommerce.local_models import UpdateInventory
 
 from target_woocommerce.client import WoocommerceSink
 from backports.cached_property import cached_property
-
-
-class DummySink(WoocommerceSink):
-    """Woocommerce order target sink class."""
-
-    name = "dummy_sink"
-
-    def process_record(self, record: dict, context: dict) -> None:
-        pass
-
 
 class SalesOrdersSink(WoocommerceSink):
     """Woocommerce order target sink class."""
@@ -115,51 +103,26 @@ class SalesOrdersSink(WoocommerceSink):
 
         return self.validate_output(mapping)
 
-    def process_record(self, record: dict, context: dict) -> None:
-        """Process the record."""
-        hash = hashlib.sha256(json.dumps(record).encode()).hexdigest()
-        if not self.latest_state:
-            self.init_state()
-        states = self.latest_state["bookmarks"][self.name]
-        existing_state = next(
-            (s for s in states if hash == s.get("hash") and s.get("success")), None
-        )
-        if existing_state:
-            self.logger.info(
-                f"Record of type {self.name} already exists with id: {existing_state['id']}"
+    def upsert_record(self, record: dict, context: dict) -> None:
+        if "id" in record:
+            endpoint = f"orders/{record['id']}"
+            response = self.request_api(
+                "PUT", endpoint=endpoint, request_data=record
             )
-            self.latest_state["summary"][self.name]["existing"] += 1
-            return
-        state = {"hash": hash}
-        try:
-            if "id" in record:
-                endpoint = f"orders/{record['id']}"
-                response = self.request_api(
-                    "PUT", endpoint=endpoint, request_data=record
-                )
-                order_response = response.json()
-                id = order_response.get("id")
-                state["id"] = id
-                state["success"] = True
-                state["updated"] = True
-                self.latest_state["summary"][self.name]["updated"] += 1
-                self.logger.info(f"{self.name} {id} updated.")
+            order_response = response.json()
+            id = order_response.get("id")
+            self.logger.info(f"{self.name} {id} updated.")
+            return id, response.ok, {"updated": True}
+        else:
+            response = self.request_api("POST", request_data=record)
+            id = response.json().get("id")
+            self.logger.info(f"{self.name} created with id: {id}")
+            return id, response.ok, dict()
 
-            else:
-                response = self.request_api("POST", request_data=record)
-                id = response.json().get("id")
-                state["id"] = id
-                state["success"] = True
-                self.latest_state["summary"][self.name]["success"] += 1
-                self.logger.info(f"{self.name} created with id: {id}")
-        except:
-            state["success"] = False
-            self.latest_state["summary"][self.name]["fail"] += 1
-        self.latest_state["bookmarks"][self.name].append(state)
 
 
 class UpdateInventorySink(WoocommerceSink):
-    """Woocommerce order target sink class."""
+    """Woocommerce inventory target sink class."""
 
     endpoint = "products/{id}"
     unified_schema = UpdateInventory
@@ -280,8 +243,8 @@ class UpdateInventorySink(WoocommerceSink):
 
         return self.validate_output(_product)
 
-    def process_record(self, record: dict, context: dict) -> None:
-        """Process the record."""
+    def upsert_record(self, record: dict, context: dict) -> None:
+        """Upsert the record."""
         if record.get("parent_id"):
             endpoint = (
                 self.endpoint.format(id=record["parent_id"])
@@ -295,7 +258,7 @@ class UpdateInventorySink(WoocommerceSink):
         product_response = response.json()
         id = product_response.get("id")
         self.logger.info(f"{self.name} updated for id: {id}, new stock: {product_response.get('stock_quantity')}.")
-
+        return id, response.ok, {"updated": True}
 
 class ProductSink(WoocommerceSink):
     """Woocommerce order target sink class."""
@@ -496,8 +459,7 @@ class ProductSink(WoocommerceSink):
                 variant_response = response.json()
                 self.logger.info(f"Created variant with id: {variant_response['id']}")
 
-    def process_record(self, record: dict, context: dict) -> None:
-        """Process the record."""
+    def upsert_record(self, record: dict, context: dict) -> None:
         if "id" in record:
             endpoint = f"products/{record['id']}"
             response = self.request_api("PUT", endpoint=endpoint, request_data=record)
@@ -506,6 +468,7 @@ class ProductSink(WoocommerceSink):
             self.logger.info(f"{self.name} {id} updated.")
             if record["type"] == "variable":
                 self.process_variation(record, product_response)
+            return id, response.ok, {"updated": True}
         else:
             response = self.request_api("POST", request_data=record)
             product_response = response.json()
@@ -513,7 +476,9 @@ class ProductSink(WoocommerceSink):
             self.logger.info(f"{self.name} created with id: {id}")
             if record["type"] == "variable":
                 self.process_variation(record, product_response)
+            return id, response.ok, dict()
 
+        
 class OrderNotesSink(WoocommerceSink):
     """Woocommerce order target sink class."""
 
@@ -540,7 +505,7 @@ class OrderNotesSink(WoocommerceSink):
 
         return self.validate_output(mapping)
     
-    def process_record(self, record: dict, context: dict) -> None:
+    def upsert_record(self, record: dict, context: dict) -> None:
         """Process the record."""
         if "order_id" in record:
             endpoint = f"orders/{record['order_id']}/notes"
@@ -548,7 +513,7 @@ class OrderNotesSink(WoocommerceSink):
             product_response = response.json()
             id = product_response.get("id")
             self.logger.info(f"{self.name} {id} added.")
-            
+            return id, response.ok, dict()
         else:
             
             self.logger.warn(f"{self.name} had no order_id skipped note {record.get('note')}")

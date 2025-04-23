@@ -14,6 +14,7 @@ python = "<3.11,>=3.7.1"
 requests = "^2.25.1"
 singer-sdk = "^0.9.0"
 random-user-agent = "^1.0.1"
+target-hotglue = "v0.0.11"
 "backports.cached-property" = "^1.0.1"
 hotglue-models-ecommerce = { git = "https://gitlab.com/hotglue/hotglue-models-ecommerce.git", branch = "main"}
 

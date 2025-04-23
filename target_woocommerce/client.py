@@ -1,16 +1,17 @@
 """WoocommerceSink target sink class, which handles writing streams."""
 
-import hashlib
-import json
 
-from singer_sdk.sinks import RecordSink
+from datetime import datetime
 from typing import Dict, List, Optional
 
-from target_woocommerce.rest import Rest
+
 from singer_sdk.plugin_base import PluginBase
+from target_hotglue.client import HotglueSink
+from base64 import b64encode
 
+MAX_PARALLELISM = 10
 
-class WoocommerceSink(RecordSink, Rest):
+class WoocommerceSink(HotglueSink):
     """WoocommerceSink target sink class."""
 
     def __init__(
@@ -37,6 +38,23 @@ class WoocommerceSink(RecordSink, Rest):
     @property
     def unified_schema(self):
         raise NotImplementedError
+    
+    @property
+    def authenticator(self):
+        user = self.config.get("consumer_key")
+        passwd = self.config.get("consumer_secret")
+        token = b64encode(f"{user}:{passwd}".encode()).decode()
+        return f"Basic {token}"
+
+    @property
+    def http_headers(self) -> dict:
+        """Return the http headers needed."""
+        headers = {}
+        headers["Content-Type"] = "application/json"
+        headers.update({"Authorization": self.authenticator})
+        if "user_agent" in self.config:
+            headers["User-Agent"] = self.config.get("user_agent")
+        return headers
 
     @property
     def base_url(self):
@@ -96,46 +114,22 @@ class WoocommerceSink(RecordSink, Rest):
                 break
         return data
 
-    def init_state(self):
-        self.latest_state = self._state or {"bookmarks": {}, "summary": {}}
-        if self.name not in self.latest_state["bookmarks"]:
-            if not self.latest_state["bookmarks"].get(self.name):
-                self.latest_state["bookmarks"][self.name] = []
-        if not self.summary_init:
-            self.latest_state["summary"] = {}
-            if not self.latest_state["summary"].get(self.name):
-                self.latest_state["summary"][self.name] = {
-                    "success": 0,
-                    "fail": 0,
-                    "existing": 0,
-                    "updated": 0,
-                }
+    @staticmethod
+    def clean_dict_items(dict):
+        return {k: v for k, v in dict.items() if v not in [None, ""]}
 
-            self.summary_init = True
-
-    def process_record(self, record: dict, context: dict) -> None:
-        """Process the record."""
-        hash = hashlib.sha256(json.dumps(record).encode()).hexdigest()
-        self.init_state()
-        states = self.latest_state["bookmarks"][self.name]
-        existing_state = next(
-            (s for s in states if hash == s.get("hash") and s.get("success")), None
-        )
-        if existing_state:
-            self.logger.info(
-                f"Record of type {self.name} already exists with id: {existing_state['id']}"
-            )
-            self.latest_state["summary"][self.name]["existing"] += 1
-            return
-        state = {"hash": hash}
-        try:
-            response = self.request_api("POST", request_data=record)
-            id = response.json().get("id")
-            state["id"] = id
-            state["success"] = True
-            self.latest_state["summary"][self.name]["success"] += 1
-            self.logger.info(f"{self.name} created with id: {id}")
-        except:
-            state["success"] = False
-            self.latest_state["summary"][self.name]["fail"] += 1
-        self.latest_state["bookmarks"][self.name].append(state)
+    def clean_payload(self, item):
+        item = self.clean_dict_items(item)
+        output = {}
+        for k, v in item.items():
+            if isinstance(v, datetime):
+                dt_str = v.strftime("%Y-%m-%dT%H:%M:%S%z")
+                if len(dt_str) > 20:
+                    output[k] = f"{dt_str[:-2]}:{dt_str[-2:]}"
+                else:
+                    output[k] = dt_str
+            elif isinstance(v, dict):
+                output[k] = self.clean_payload(v)
+            else:
+                output[k] = v
+        return output
