@@ -42,6 +42,16 @@ class TargetWoocommerce(TargetHotglue):
     ).to_dict()
 
 
+    def get_sink_class(self, stream_name: str) -> Type[Sink]:
+        """Get sink for a stream."""
+        return next(
+            (
+                sink_class
+                for sink_class in SINK_TYPES
+                if sink_class.name.lower() == stream_name.lower() or stream_name in sink_class.available_names
+            ),
+            None
+        )
 
 if __name__ == "__main__":
     TargetWoocommerce.cli()
