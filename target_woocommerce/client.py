@@ -54,6 +54,7 @@ class WoocommerceSink(HotglueSink):
         headers.update({"Authorization": self.authenticator})
         if "user_agent" in self.config:
             headers["User-Agent"] = self.config.get("user_agent")
+        self.logger.info(f"Returning Headers: {headers}")
         return headers
 
     @property
@@ -92,12 +93,19 @@ class WoocommerceSink(HotglueSink):
         return modified_response
 
     def get_reference_data(self, stream, fields=None, filter={}, fallback_url=None):
+        self.logger.info(f"Getting reference data for {stream}")
         page = 1
         data = []
         params = {"per_page": 100, "order": "asc", "page": page}
         params.update(filter)
         while True:
+            self.logger.info(f"Getting reference data for {stream} page {page}")
             resp = self.request_api("GET", stream, params)
+            self.logger.info(f"Response: {resp}")
+            self.logger.info(f"Response headers: {resp.headers}")
+            self.logger.info(f"Request url: {resp.request.url}")
+            self.logger.info(f"Request headers: {resp.request.headers}")
+            self.logger.info(f"Request data: {resp.request.body}")
             total_pages = resp.headers.get("X-WP-TotalPages")
             resp = resp.json()
             if fields:
