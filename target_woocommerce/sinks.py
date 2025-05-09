@@ -245,20 +245,22 @@ class UpdateInventorySink(WoocommerceSink):
 
     def upsert_record(self, record: dict, context: dict) -> None:
         """Upsert the record."""
-        if record.get("parent_id"):
-            endpoint = (
-                self.endpoint.format(id=record["parent_id"])
-                + "/variations/"
-                + str(record["id"])
-            )
-        else:
-            endpoint = self.endpoint.format(id=record["id"])
+        self.logger.info(f"Upserting record: {record}")
+        return None, False, {"updated": False}
+        # if record.get("parent_id"):
+        #     endpoint = (
+        #         self.endpoint.format(id=record["parent_id"])
+        #         + "/variations/"
+        #         + str(record["id"])
+        #     )
+        # else:
+        #     endpoint = self.endpoint.format(id=record["id"])
 
-        response = self.request_api("PUT", endpoint, request_data=record)
-        product_response = response.json()
-        id = product_response.get("id")
-        self.logger.info(f"{self.name} updated for id: {id}, new stock: {product_response.get('stock_quantity')}.")
-        return id, response.ok, {"updated": True}
+        # response = self.request_api("PUT", endpoint, request_data=record)
+        # product_response = response.json()
+        # id = product_response.get("id")
+        # self.logger.info(f"{self.name} updated for id: {id}, new stock: {product_response.get('stock_quantity')}.")
+        # return id, response.ok, {"updated": True}
 
 class ProductSink(WoocommerceSink):
     """Woocommerce order target sink class."""
