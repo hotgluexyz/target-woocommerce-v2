@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from singer_sdk.plugin_base import PluginBase
 from target_hotglue.client import HotglueSink
 from base64 import b64encode
+from random_user_agent.user_agent import UserAgent
 
 MAX_PARALLELISM = 10
 
@@ -27,6 +28,8 @@ class WoocommerceSink(HotglueSink):
     summary_init = False
     available_names = []
 
+    user_agents = UserAgent(software_engines="blink", software_names="chrome")
+
     @property
     def name(self):
         raise NotImplementedError
@@ -38,7 +41,12 @@ class WoocommerceSink(HotglueSink):
     @property
     def unified_schema(self):
         raise NotImplementedError
-    
+    @property 
+    def user_agent(self):
+        # Woocom throws 403 if the user agent is not set
+        if self.config.get("user_agent"):
+            return self.config.get("user_agent")
+        return self.user_agents.get_random_user_agent().strip()
     @property
     def authenticator(self):
         user = self.config.get("consumer_key")
@@ -52,8 +60,8 @@ class WoocommerceSink(HotglueSink):
         headers = {}
         headers["Content-Type"] = "application/json"
         headers.update({"Authorization": self.authenticator})
-        if "user_agent" in self.config:
-            headers["User-Agent"] = self.config.get("user_agent")
+        
+        headers["User-Agent"] = self.user_agent
         return headers
 
     @property
