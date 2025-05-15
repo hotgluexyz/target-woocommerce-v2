@@ -92,6 +92,7 @@ class WoocommerceSink(HotglueSink):
         return modified_response
 
     def get_reference_data(self, stream, fields=None, filter={}, fallback_url=None):
+        self.logger.info(f"Getting reference data for {stream}")
         page = 1
         data = []
         params = {"per_page": 100, "order": "asc", "page": page}
@@ -107,11 +108,15 @@ class WoocommerceSink(HotglueSink):
                 ]
             data += resp
 
+            if page % 10 == 0:
+                self.logger.info(f"Fetched {len(data)} records for {stream} page {page}")
+
             if resp and int(total_pages) > page:
                 page += 1
                 params.update({"page": page})
             else:
                 break
+        self.logger.info(f"Reference data for {stream} fetched successfully. {len(data)} records found.")
         return data
 
     @staticmethod

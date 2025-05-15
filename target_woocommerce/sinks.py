@@ -171,11 +171,13 @@ class UpdateInventorySink(WoocommerceSink):
         if product_id:
             product = next((p for p in self.products if str(p["id"]) == str(product_id)), None)
         if product_id and not product:
+            self.logger.info(f"Product {product_id} not found in main products, checking variants...")
             product = next(
                 (p for p in self.product_variants if str(p["id"]) == str(product_id)), None
             )
         # check main product sku
         if product_sku and not product:
+            self.logger.info(f"Attempting to match product with sku {product_sku}")
             product_list = [p for p in self.products if p.get("sku")==product_sku]
             if len(product_list) > 1:
                 self.logger.info(f"More than one product was found with sku {product_sku}, filtering product by name...")
@@ -183,11 +185,13 @@ class UpdateInventorySink(WoocommerceSink):
             elif len(product_list) == 1:
                 product = product_list[0]
         if product_name and not product:
+            self.logger.info(f"Attempting to match product with name {product_name}")
             product = next((p for p in self.products if p.get("name") == product_name), None)
 
         if not product:
             # If it didn't work with main products, check the variants
             if product_sku:
+                self.logger.info(f"Attempting to match product with sku {product_sku} in variants...")
                 product_list = [p for p in self.product_variants if p.get("sku")==product_sku]
                 if len(product_list) > 1:
                     self.logger.info(f"More than one product was found with sku {product_sku}, filtering product by name...")
@@ -195,11 +199,13 @@ class UpdateInventorySink(WoocommerceSink):
                 elif len(product_list) == 1:
                     product = product_list[0]
             elif product_name:
+                self.logger.info(f"Attempting to match product with name {product_name} in variants...")
                 product = next(
                     (p for p in self.product_variants if p.get("name") == product_name), None
                 )
 
             if not product and product_name:
+                self.logger.info(f"Attempting to match product with sanitized name in variants...")
                 # Some items may vary on naming and special characters
                 product = next(
                     (
@@ -212,6 +218,7 @@ class UpdateInventorySink(WoocommerceSink):
                 )
 
         if product:
+            self.logger.info(f"Found product: {product}")
             _product = product.copy()
             in_stock = True
             current_stock = _product.get("stock_quantity") or 0
