@@ -161,7 +161,6 @@ class UpdateInventorySink(WoocommerceSink):
     def find_matching_product(self, record: dict) -> dict:
         product_candidates = None
         product_id = record.get("id")
-        product_id = None
         product_sku = record.get("sku")
         product_name = record.get("name")
 
