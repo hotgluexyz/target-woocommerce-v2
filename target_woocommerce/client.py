@@ -9,6 +9,7 @@ from singer_sdk.plugin_base import PluginBase
 from target_hotglue.client import HotglueSink
 from base64 import b64encode
 from random_user_agent.user_agent import UserAgent
+from singer_sdk.exceptions import RetriableAPIError
 
 MAX_PARALLELISM = 10
 
@@ -47,6 +48,18 @@ class WoocommerceSink(HotglueSink):
         if self.config.get("user_agent"):
             return self.config.get("user_agent")
         return self.user_agents.get_random_user_agent().strip()
+    
+
+    def validate_response(self, response):
+        super().validate_response(response)
+        if response.ok:
+            # Woocom sometimes returns 200 codes with bad data
+            # We want to log the response
+            try:
+                response.json()
+            except Exception:
+                self.logger.error(f"Error parsing response for: {self.name}")
+                self.logger.error(f"Response: {response.text}")
     @property
     def authenticator(self):
         user = self.config.get("consumer_key")
