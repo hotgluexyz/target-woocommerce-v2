@@ -188,12 +188,12 @@ class UpdateInventorySink(WoocommerceSink):
             resp = resp.json()
             if resp:
                 product_candidates = resp
-        if product_name:
+        if product_name and len(product_candidates) != 1:
             resp = self.request_api("GET", "products", {"search": product_name})
             resp = resp.json()
             if resp:
-                product_candidates = resp if product_candidates is None else product_candidates + resp
-                product_candidates = list({p['id']: p for p in product_candidates}.values()) # Filter out duplicates based on id
+                name_match_candidates = resp
+                product_candidates = [product for product in product_candidates if product["id"] in [p["id"] for p in name_match_candidates]]
 
         if len(product_candidates) == 1:
             return product_candidates[0]
