@@ -159,7 +159,7 @@ class UpdateInventorySink(WoocommerceSink):
         return re.sub(r"\W+", "", input)
     
     def find_matching_product(self, record: dict) -> dict:
-        product_candidates = None
+        product_candidates = []
         product_id = record.get("id")
         product_sku = record.get("sku")
         product_name = record.get("name")
@@ -188,20 +188,23 @@ class UpdateInventorySink(WoocommerceSink):
             resp = resp.json()
             if resp:
                 product_candidates = resp
-        if product_name and len(product_candidates) != 1:
+        if product_name and (not product_candidates or len(product_candidates) != 1):
             resp = self.request_api("GET", "products", {"search": product_name})
             resp = resp.json()
             if resp:
                 name_match_candidates = resp
-                product_candidates = [product for product in product_candidates if product["id"] in [p["id"] for p in name_match_candidates]]
+                if product_candidates:
+                    product_candidates = [product for product in product_candidates if product["id"] in [p["id"] for p in name_match_candidates]]
+                else: # No sku match, use name match
+                    product_candidates = name_match_candidates
 
         if len(product_candidates) == 1:
             return product_candidates[0]
         
         if len(product_candidates) > 1:
-            self.logger.debug(f"More than one product was found with sku {product_sku} and name {product_name}")
-            self.logger.debug(f"Matching candidates: {product_candidates}")
-            self.logger.debug("Attempting to match on variants...")
+            self.logger.info(f"More than one product was found with sku {product_sku} and name {product_name}")
+            self.logger.info(f"Matching candidates: {product_candidates}")
+            self.logger.info("Attempting to match on variants...")
 
         # Cannot match on product, need to check variants
         product_variants = self.product_variants
