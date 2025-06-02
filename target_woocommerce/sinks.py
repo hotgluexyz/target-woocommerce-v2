@@ -157,6 +157,76 @@ class UpdateInventorySink(WoocommerceSink):
 
     def _get_alnum_string(self, input):
         return re.sub(r"\W+", "", input)
+    
+    def find_matching_product(self, record: dict) -> dict:
+        product_candidates = []
+        product_id = record.get("id")
+        product_sku = record.get("sku")
+        product_name = record.get("name")
+
+        if not product_id and not product_sku and not product_name:
+            raise Exception(f"No product id, sku or name found in product record: {record}")
+
+        if product_id:
+            resp = self.request_api("GET", "products", {"include": [product_id]})
+            resp = resp.json()
+            if resp:
+                return resp[0]
+            else:
+                self.logger.debug(f"Product id {product_id} not found, need to check variants...")
+                product = next(
+                    (p for p in self.product_variants if str(p["id"]) == str(product_id)), None
+                )
+                if product:
+                    return product
+                if not product_sku and not product_name:
+                    raise Exception(f"Product with id {product_id} not found, and no sku or name found in product record: {record}")
+        
+
+        if product_sku:
+            resp = self.request_api("GET", "products", {"sku": product_sku})
+            resp = resp.json()
+            if resp:
+                product_candidates = resp
+        if product_name and (not product_candidates or len(product_candidates) != 1):
+            resp = self.request_api("GET", "products", {"search": product_name})
+            resp = resp.json()
+            if resp:
+                name_match_candidates = resp
+                if product_candidates:
+                    product_candidates = [product for product in product_candidates if product["id"] in [p["id"] for p in name_match_candidates]]
+                else: # No sku match, use name match
+                    product_candidates = name_match_candidates
+
+        if len(product_candidates) == 1:
+            return product_candidates[0]
+        
+        if len(product_candidates) > 1:
+            self.logger.info(f"More than one product was found with sku {product_sku} and name {product_name}")
+            self.logger.info(f"Matching candidates: {product_candidates}")
+            self.logger.info("Attempting to match on variants...")
+
+        # Cannot match on product, need to check variants
+        product_variants = self.product_variants
+
+        candidates = []
+        if product_sku:
+            candidates = [p for p in product_variants if p.get("sku") == product_sku]
+        if product_name:
+            candidates = [p for p in product_variants if p.get("name") == product_name or self._get_alnum_string(p.get("name")) == self._get_alnum_string(product_name)]
+        if len(candidates) == 1:
+            return candidates[0]
+        
+        if len(candidates) > 1:
+            self.logger.debug(f"More than one product was found with sku {product_sku} and name {product_name}")
+            self.logger.debug(f"Matching candidates: {candidates}")
+            raise Exception(f"Could not find unique product with sku and name. Failing product: {record}")
+        
+        raise Exception(
+                f"Could not find product with through id, sku or name. Failing product: {record}"
+        )
+
+
 
     def preprocess_record(self, record: dict, context: dict) -> dict:
         if "product_name" in record.keys():
@@ -164,58 +234,8 @@ class UpdateInventorySink(WoocommerceSink):
         record = self.validate_input(record)
 
         product = None
-        product_id = record.get("id")
-        product_sku = record.get("sku")
-        product_name = record.get("name")
-        # check product and variant id first
-        if product_id:
-            product = next((p for p in self.products if str(p["id"]) == str(product_id)), None)
-        if product_id and not product:
-            self.logger.info(f"Product {product_id} not found in main products, checking variants...")
-            product = next(
-                (p for p in self.product_variants if str(p["id"]) == str(product_id)), None
-            )
-        # check main product sku
-        if product_sku and not product:
-            self.logger.info(f"Attempting to match product with sku {product_sku}")
-            product_list = [p for p in self.products if p.get("sku")==product_sku]
-            if len(product_list) > 1:
-                self.logger.info(f"More than one product was found with sku {product_sku}, filtering product by name...")
-                product = next((p for p in product_list if p.get("name") == product_name), None)
-            elif len(product_list) == 1:
-                product = product_list[0]
-        if product_name and not product:
-            self.logger.info(f"Attempting to match product with name {product_name}")
-            product = next((p for p in self.products if p.get("name") == product_name), None)
 
-        if not product:
-            # If it didn't work with main products, check the variants
-            if product_sku:
-                self.logger.info(f"Attempting to match product with sku {product_sku} in variants...")
-                product_list = [p for p in self.product_variants if p.get("sku")==product_sku]
-                if len(product_list) > 1:
-                    self.logger.info(f"More than one product was found with sku {product_sku}, filtering product by name...")
-                    product = next((p for p in product_list if p.get("name") == product_name), None)
-                elif len(product_list) == 1:
-                    product = product_list[0]
-            elif product_name:
-                self.logger.info(f"Attempting to match product with name {product_name} in variants...")
-                product = next(
-                    (p for p in self.product_variants if p.get("name") == product_name), None
-                )
-
-            if not product and product_name:
-                self.logger.info(f"Attempting to match product with sanitized name in variants...")
-                # Some items may vary on naming and special characters
-                product = next(
-                    (
-                        p
-                        for p in self.product_variants
-                        if self._get_alnum_string(p.get("name"))
-                        == self._get_alnum_string(product_name)
-                    ),
-                    None,
-                )
+        product = self.find_matching_product(record)
 
         if product:
             self.logger.info(f"Found product: {product}")
