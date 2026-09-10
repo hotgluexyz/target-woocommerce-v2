@@ -14,6 +14,92 @@ class SalesOrdersSink(WoocommerceSink):
     unified_schema = SalesOrder
     name = SalesOrder.Stream.name
 
+    @staticmethod
+    def _wc_amount(value) -> str:
+        return f"{float(value):.2f}"
+
+    def _resolve_product_id(self, line: dict):
+        if line.get("product_id"):
+            return line["product_id"]
+        if line.get("sku"):
+            product = self.get_reference_data(
+                "products", filter={"sku": line["sku"]}
+            )
+            return next(p["id"] for p in product)
+        raise Exception("Product not found.")
+
+    def _build_line_item(self, line: dict) -> dict:
+        quantity = line.get("quantity") or 0
+        item = {
+            "product_id": self._resolve_product_id(line),
+            "quantity": quantity,
+        }
+        if line.get("product_name"):
+            item["name"] = line["product_name"]
+        if line.get("tax_code"):
+            item["tax_class"] = line["tax_code"]
+
+        discount = line.get("discount_amount") or 0
+        unit_price = line.get("unit_price")
+        total_price = line.get("total_price")
+
+        if unit_price is not None:
+            subtotal = float(unit_price) * float(quantity)
+        elif total_price is not None:
+            subtotal = float(total_price) + float(discount)
+        else:
+            subtotal = None
+
+        if total_price is not None:
+            total = float(total_price)
+        elif subtotal is not None:
+            total = subtotal - float(discount)
+        else:
+            total = None
+
+        if subtotal is not None:
+            item["subtotal"] = self._wc_amount(subtotal)
+        if total is not None:
+            item["total"] = self._wc_amount(total)
+
+        return item
+
+    def _build_shipping_lines(self, record: dict) -> list:
+        shipping_lines = record.get("shipping_lines") or []
+        if shipping_lines:
+            mapped = []
+            for line in shipping_lines:
+                amount = line.get("total_price")
+                if amount is None:
+                    amount = line.get("subtotal")
+                if amount is None:
+                    continue
+                method = line.get("code") or line.get("carrier") or "Shipping"
+                mapped.append(
+                    {
+                        "method_id": line.get("id") or method,
+                        "method_title": method,
+                        "total": self._wc_amount(amount),
+                    }
+                )
+            if mapped:
+                return mapped
+        if record.get("total_shipping") is not None:
+            return [{"total": self._wc_amount(record["total_shipping"])}]
+        return []
+
+    def _build_fee_lines(self, record: dict) -> list:
+        total_discount = record.get("total_discount")
+        if not total_discount:
+            return []
+        return [
+            {
+                "name": "Discount",
+                "total": self._wc_amount(-abs(float(total_discount))),
+                "tax_status": "none",
+            }
+        ]
+
     def preprocess_record(self, record: dict, context: dict) -> dict:
         record = self.validate_input(record)
         if record.get("customer_name"):
@@ -57,10 +143,20 @@ class SalesOrdersSink(WoocommerceSink):
                 "postcode": shipping_address.get("postal_code"),
                 "country": shipping_address.get("country"),
             }
-        if record.get("total_shipping") is not None:
-            mapping["shipping_lines"] = [
-                {"total": record["total_shipping"]}
-            ]
+
+        shipping_lines = self._build_shipping_lines(record)
+        if shipping_lines:
+            mapping["shipping_lines"] = shipping_lines
+
+        fee_lines = self._build_fee_lines(record)
+        if fee_lines:
+            mapping["fee_lines"] = fee_lines
+
+        if record.get("currency"):
+            mapping["currency"] = record["currency"]
+        if record.get("payment_method"):
+            mapping["payment_method"] = record["payment_method"]
+
         status = record.get("status")
         fulfilled = record.get("fulfilled")
         if fulfilled:
@@ -83,23 +179,9 @@ class SalesOrdersSink(WoocommerceSink):
             mapping["customer_id"] = id
 
         if record["line_items"]:
-            if "line_items" not in mapping:
-                mapping["line_items"] = []
-            for line in record["line_items"]:
-                if line.get("product_id"):
-                    item = {
-                        "product_id": line["product_id"],
-                        "quantity": line["quantity"],
-                    }
-                elif line.get("sku"):
-                    product = self.get_reference_data(
-                        "products", filter={"sku": line["sku"]}
-                    )
-                    id = next(p["id"] for p in product)
-                    item = {"product_id": id, "quantity": line["quantity"]}
-                else:
-                    raise Exception("Product not found.")
-                mapping["line_items"].append(item)
+            mapping["line_items"] = [
+                self._build_line_item(line) for line in record["line_items"]
+            ]
 
         return self.validate_output(mapping)
 
