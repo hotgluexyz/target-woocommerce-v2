@@ -44,7 +44,7 @@ class SalesOrdersSink(WoocommerceSink):
                 "state": billing_address.get("state"),
                 "postcode": billing_address.get("postal_code"),
                 "country": billing_address.get("country"),
-                "email": billing_address.get("customer_email"),
+                "email": record.get("billing_email") or record.get("customer_email"),
             }
         if shipping_address:
             mapping["shipping"] = {
@@ -57,10 +57,10 @@ class SalesOrdersSink(WoocommerceSink):
                 "postcode": shipping_address.get("postal_code"),
                 "country": shipping_address.get("country"),
             }
-            if shipping_address.get("total_shipping"):
-                mapping["shipping_lines"] = [
-                    {"total": shipping_address["total_shipping"]}
-                ]
+        if record.get("total_shipping") is not None:
+            mapping["shipping_lines"] = [
+                {"total": record["total_shipping"]}
+            ]
         status = record.get("status")
         fulfilled = record.get("fulfilled")
         if fulfilled:
