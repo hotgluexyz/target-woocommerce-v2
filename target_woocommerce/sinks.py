@@ -186,7 +186,9 @@ class SalesOrdersSink(WoocommerceSink):
         self.tax_classes.append(created)
         return self._normalize_tax_class(created.get("slug") or slug_hint)
 
-    def _create_tax_rate(self, rate_pct: float, country: str, state: str) -> dict:
+    def _create_tax_rate(
+        self, rate_pct: float, country: str, state: str, apply_to_shipping: bool = False
+    ) -> dict:
         # Keep two decimal places so rates like 6.63% survive creation.
         rate_pct = round(float(rate_pct), 2)
         label = f"{rate_pct:g}%"
@@ -200,15 +202,81 @@ class SalesOrdersSink(WoocommerceSink):
             "rate": f"{rate_pct:.4f}",
             "name": class_name,
             "class": tax_class or "standard",
-            "shipping": False,
+            # WooCommerce only taxes shipping when the matching rate has this set.
+            "shipping": bool(apply_to_shipping),
         }
         self.logger.info(
             f"Creating WooCommerce tax rate {label} for "
-            f"country={country or '*'} state={state or '*'}"
+            f"country={country or '*'} state={state or '*'} "
+            f"(shipping={apply_to_shipping})"
         )
         created = self.request_api("POST", "taxes", request_data=payload).json()
         self.tax_rates.append(created)
         return created
+
+    @staticmethod
+    def _rate_has_shipping(rate: dict) -> bool:
+        return rate.get("shipping") in (True, 1, "1", "true", "True")
+
+    def _enable_shipping_on_rate(self, rate: dict) -> dict:
+        rate_id = rate.get("id")
+        if rate_id is None or self._rate_has_shipping(rate):
+            return rate
+
+        self.logger.info(
+            f"Enabling shipping on WooCommerce tax rate "
+            f"{rate.get('rate')}% (id={rate_id})"
+        )
+        updated = self.request_api(
+            "PUT", f"taxes/{rate_id}", request_data={"shipping": True}
+        ).json()
+        for index, existing in enumerate(self.tax_rates):
+            if existing.get("id") == rate_id:
+                self.tax_rates[index] = updated
+                break
+        else:
+            self.tax_rates.append(updated)
+        return updated
+
+    def _resolve_tax_rate(
+        self,
+        tax_amount,
+        base_amount,
+        country: str,
+        state: str,
+        apply_to_shipping: bool = False,
+    ):
+        if tax_amount is None or base_amount is None:
+            return None
+
+        rate_pcts = self._tax_rates_for_amount(tax_amount, base_amount)
+        if not rate_pcts:
+            self.logger.warning(
+                f"Could not derive tax % from tax_amount={tax_amount} "
+                f"and base_amount={base_amount}"
+            )
+            return None
+
+        matched = self._find_matching_tax_rate(
+            rate_pcts,
+            country,
+            state,
+            tax_amount=tax_amount,
+            line_total=base_amount,
+        )
+        if matched:
+            self.logger.info(
+                f"Matched tax rate {matched.get('rate')}% "
+                f"(class={matched.get('class') or 'standard'}) "
+                f"for tax_amount={tax_amount}"
+            )
+            if apply_to_shipping:
+                matched = self._enable_shipping_on_rate(matched)
+            return matched
+
+        return self._create_tax_rate(
+            rate_pcts[0], country, state, apply_to_shipping=apply_to_shipping
+        )
 
     def _resolve_tax_class_for_line(
         self, line: dict, line_total, country: str, state: str
@@ -221,31 +289,12 @@ class SalesOrdersSink(WoocommerceSink):
             )
             return None
 
-        rate_pcts = self._tax_rates_for_amount(line["tax_amount"], line_total)
-        if not rate_pcts:
-            self.logger.warning(
-                f"Could not derive tax % from tax_amount={line['tax_amount']} "
-                f"and line_total={line_total}"
-            )
-            return None
-
-        matched = self._find_matching_tax_rate(
-            rate_pcts,
-            country,
-            state,
-            tax_amount=line["tax_amount"],
-            line_total=line_total,
+        rate = self._resolve_tax_rate(
+            line["tax_amount"], line_total, country, state
         )
-        if matched:
-            self.logger.info(
-                f"Matched tax rate {matched.get('rate')}% "
-                f"(class={matched.get('class') or 'standard'}) "
-                f"for tax_amount={line['tax_amount']}"
-            )
-            return self._normalize_tax_class(matched.get("class"))
-
-        created = self._create_tax_rate(rate_pcts[0], country, state)
-        return self._normalize_tax_class(created.get("class"))
+        if not rate:
+            return None
+        return self._normalize_tax_class(rate.get("class"))
 
     def _build_line_item(self, line: dict, record: dict) -> dict:
         quantity = line.get("quantity") or 0
@@ -296,6 +345,11 @@ class SalesOrdersSink(WoocommerceSink):
 
     def _build_shipping_lines(self, record: dict) -> list:
         shipping_lines = record.get("shipping_lines") or []
+        billing = record.get("billing_address") or {}
+        shipping = record.get("shipping_address") or {}
+        country = billing.get("country") or shipping.get("country") or ""
+        state = billing.get("state") or shipping.get("state") or ""
+
         if shipping_lines:
             mapped = []
             for line in shipping_lines:
@@ -305,6 +359,17 @@ class SalesOrdersSink(WoocommerceSink):
                 if amount is None:
                     continue
                 method = line.get("code") or line.get("carrier") or "Shipping"
+                # shipping_lines.total_tax is read-only in the WC API. Tax is
+                # applied during calculate_totals when a matching rate has
+                # shipping=true, so resolve/create that rate here.
+                if line.get("total_tax") is not None:
+                    self._resolve_tax_rate(
+                        line["total_tax"],
+                        amount,
+                        country,
+                        state,
+                        apply_to_shipping=True,
+                    )
                 mapped.append(
                     {
                         "method_id": line.get("id") or method,
@@ -374,14 +439,6 @@ class SalesOrdersSink(WoocommerceSink):
                 "country": shipping_address.get("country"),
             }
 
-        shipping_lines = self._build_shipping_lines(record)
-        if shipping_lines:
-            mapping["shipping_lines"] = shipping_lines
-
-        fee_lines = self._build_fee_lines(record)
-        if fee_lines:
-            mapping["fee_lines"] = fee_lines
-
         if record.get("currency"):
             mapping["currency"] = record["currency"]
         if record.get("payment_method"):
@@ -408,10 +465,20 @@ class SalesOrdersSink(WoocommerceSink):
             id = next((c["id"] for c in customer), None)
             mapping["customer_id"] = id
 
+        # Resolve product tax classes before shipping so shipping can reuse the
+        # same rate and flip shipping=true when shipping tax is present.
         if record["line_items"]:
             mapping["line_items"] = [
                 self._build_line_item(line, record) for line in record["line_items"]
             ]
+
+        shipping_lines = self._build_shipping_lines(record)
+        if shipping_lines:
+            mapping["shipping_lines"] = shipping_lines
+
+        fee_lines = self._build_fee_lines(record)
+        if fee_lines:
+            mapping["fee_lines"] = fee_lines
 
         return self.validate_output(mapping)
 
