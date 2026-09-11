@@ -13,6 +13,387 @@ class SalesOrdersSink(WoocommerceSink):
     endpoint = "orders"
     unified_schema = SalesOrder
     name = SalesOrder.Stream.name
+    # Match tax rates within this absolute percentage-point tolerance.
+    TAX_RATE_TOLERANCE = 0.05
+
+    @staticmethod
+    def _wc_amount(value) -> str:
+        return f"{float(value):.2f}"
+
+    @staticmethod
+    def _normalize_tax_class(tax_class) -> str:
+        if not tax_class or tax_class == "standard":
+            return ""
+        return tax_class
+
+    @cached_property
+    def tax_rates(self):
+        return self.get_reference_data("taxes")
+
+    @cached_property
+    def tax_classes(self):
+        return self.request_api("GET", "taxes/classes").json()
+
+    def _resolve_product_id(self, line: dict):
+        if line.get("product_id"):
+            return line["product_id"]
+        if line.get("sku"):
+            product = self.get_reference_data(
+                "products", filter={"sku": line["sku"]}
+            )
+            return next(p["id"] for p in product)
+        raise Exception("Product not found.")
+
+    @staticmethod
+    def _tax_rates_for_amount(tax_amount, line_total) -> list:
+        """Candidate % rates that would produce tax_amount for line_total.
+
+        Prefers whole-number rates (e.g. 10% GST) when both exclusive and
+        inclusive interpretations work, otherwise prefers the exclusive rate so
+        awkward state taxes like 6.63% are preserved.
+        """
+        tax_amount = float(tax_amount)
+        line_total = float(line_total)
+        if tax_amount == 0:
+            return [0.0]
+        if line_total <= 0:
+            return []
+
+        candidates = []
+
+        def add_candidate(rate, source):
+            rate = float(rate)
+            if source == "exclusive":
+                if abs(round(line_total * rate / 100, 2) - tax_amount) > 0.01:
+                    return
+            else:
+                if abs(round(line_total * rate / (100 + rate), 2) - tax_amount) > 0.01:
+                    return
+                # Skip near-duplicates of an exclusive candidate.
+                if any(abs(rate - existing) <= 0.001 for existing, _ in candidates):
+                    return
+            candidates.append((rate, source))
+
+        exclusive = tax_amount / line_total * 100
+        for rate in (exclusive, round(exclusive, 2), round(exclusive, 4), round(exclusive)):
+            add_candidate(rate, "exclusive")
+
+        net = line_total - tax_amount
+        if net > 0:
+            inclusive = tax_amount / net * 100
+            for rate in (inclusive, round(inclusive, 2), round(inclusive, 4), round(inclusive)):
+                add_candidate(rate, "inclusive")
+
+        def sort_key(item):
+            rate, source = item
+            return (
+                abs(rate - round(rate)) > 0.001,  # whole numbers first
+                abs(rate - round(rate, 2)) > 1e-9,  # then exact 2dp
+                0 if source == "exclusive" else 1,
+                abs(rate - round(rate, 2)),
+                rate,
+            )
+
+        ordered = []
+        seen = set()
+        for rate, _source in sorted(candidates, key=sort_key):
+            key = round(rate, 4)
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(rate)
+        return ordered
+
+    @staticmethod
+    def _rate_applies_to_address(rate: dict, country: str, state: str) -> bool:
+        rate_country = (rate.get("country") or "").upper()
+        rate_state = (rate.get("state") or "").upper()
+        country = (country or "").upper()
+        state = (state or "").upper()
+        if rate_country and country and rate_country != country:
+            return False
+        if rate_state and state and rate_state != state:
+            return False
+        return True
+
+    def _find_matching_tax_rate(
+        self, rate_pcts: list, country: str, state: str, tax_amount=None, line_total=None
+    ):
+        applicable = [
+            rate
+            for rate in self.tax_rates
+            if self._rate_applies_to_address(rate, country, state)
+        ]
+
+        def rate_value(rate):
+            try:
+                return float(rate.get("rate") or 0)
+            except (TypeError, ValueError):
+                return None
+
+        def produces_tax(existing_rate):
+            """True if this WC rate would yield tax_amount on line_total."""
+            if tax_amount is None or line_total is None or line_total <= 0:
+                return False
+            tax_amount_f = float(tax_amount)
+            line_total_f = float(line_total)
+            expected_exclusive = round(line_total_f * existing_rate / 100, 2)
+            if abs(expected_exclusive - tax_amount_f) <= 0.01:
+                return True
+            expected_inclusive = round(
+                line_total_f * existing_rate / (100 + existing_rate), 2
+            )
+            return abs(expected_inclusive - tax_amount_f) <= 0.01
+
+        def matches(rate):
+            existing = rate_value(rate)
+            if existing is None:
+                return False
+            if any(
+                abs(existing - candidate) <= self.TAX_RATE_TOLERANCE
+                for candidate in rate_pcts
+            ):
+                return True
+            # Catch awkward state rates (e.g. 6.63%) where rounding the
+            # derived % drifts slightly from the configured rate.
+            return produces_tax(existing)
+
+        matches_found = [rate for rate in applicable if matches(rate)]
+        if not matches_found:
+            return None
+
+        # Prefer country+state specific rates, then country-only, then global.
+        preferred = rate_pcts[0] if rate_pcts else 0
+
+        def specificity(rate):
+            return (
+                0 if rate.get("state") else 1,
+                0 if rate.get("country") else 1,
+                abs(rate_value(rate) - preferred),
+            )
+
+        return min(matches_found, key=specificity)
+
+    def _ensure_tax_class(self, name: str, slug_hint: str) -> str:
+        for tax_class in self.tax_classes:
+            if tax_class.get("name") == name or tax_class.get("slug") == slug_hint:
+                return self._normalize_tax_class(tax_class.get("slug"))
+
+        self.logger.info(f"Creating WooCommerce tax class '{name}'")
+        created = self.request_api(
+            "POST", "taxes/classes", request_data={"name": name}
+        ).json()
+        self.tax_classes.append(created)
+        return self._normalize_tax_class(created.get("slug") or slug_hint)
+
+    def _create_tax_rate(
+        self, rate_pct: float, country: str, state: str, apply_to_shipping: bool = False
+    ) -> dict:
+        # Keep two decimal places so rates like 6.63% survive creation.
+        rate_pct = round(float(rate_pct), 2)
+        label = f"{rate_pct:g}%"
+        class_name = f"Trove {label}"
+        slug_hint = f"trove-{rate_pct:g}".replace(".", "-")
+        tax_class = self._ensure_tax_class(class_name, slug_hint)
+
+        payload = {
+            "country": country or "",
+            "state": state or "",
+            "rate": f"{rate_pct:.4f}",
+            "name": class_name,
+            "class": tax_class or "standard",
+            # WooCommerce only taxes shipping when the matching rate has this set.
+            "shipping": bool(apply_to_shipping),
+        }
+        self.logger.info(
+            f"Creating WooCommerce tax rate {label} for "
+            f"country={country or '*'} state={state or '*'} "
+            f"(shipping={apply_to_shipping})"
+        )
+        created = self.request_api("POST", "taxes", request_data=payload).json()
+        self.tax_rates.append(created)
+        return created
+
+    @staticmethod
+    def _rate_has_shipping(rate: dict) -> bool:
+        return rate.get("shipping") in (True, 1, "1", "true", "True")
+
+    def _enable_shipping_on_rate(self, rate: dict) -> dict:
+        rate_id = rate.get("id")
+        if rate_id is None or self._rate_has_shipping(rate):
+            return rate
+
+        self.logger.info(
+            f"Enabling shipping on WooCommerce tax rate "
+            f"{rate.get('rate')}% (id={rate_id})"
+        )
+        updated = self.request_api(
+            "PUT", f"taxes/{rate_id}", request_data={"shipping": True}
+        ).json()
+        for index, existing in enumerate(self.tax_rates):
+            if existing.get("id") == rate_id:
+                self.tax_rates[index] = updated
+                break
+        else:
+            self.tax_rates.append(updated)
+        return updated
+
+    def _resolve_tax_rate(
+        self,
+        tax_amount,
+        base_amount,
+        country: str,
+        state: str,
+        apply_to_shipping: bool = False,
+    ):
+        if tax_amount is None or base_amount is None:
+            return None
+
+        rate_pcts = self._tax_rates_for_amount(tax_amount, base_amount)
+        if not rate_pcts:
+            self.logger.warning(
+                f"Could not derive tax % from tax_amount={tax_amount} "
+                f"and base_amount={base_amount}"
+            )
+            return None
+
+        matched = self._find_matching_tax_rate(
+            rate_pcts,
+            country,
+            state,
+            tax_amount=tax_amount,
+            line_total=base_amount,
+        )
+        if matched:
+            self.logger.info(
+                f"Matched tax rate {matched.get('rate')}% "
+                f"(class={matched.get('class') or 'standard'}) "
+                f"for tax_amount={tax_amount}"
+            )
+            if apply_to_shipping:
+                matched = self._enable_shipping_on_rate(matched)
+            return matched
+
+        return self._create_tax_rate(
+            rate_pcts[0], country, state, apply_to_shipping=apply_to_shipping
+        )
+
+    def _resolve_tax_class_for_line(
+        self, line: dict, line_total, country: str, state: str
+    ) -> str:
+        if line.get("tax_amount") is None:
+            return None
+        if line_total is None:
+            self.logger.warning(
+                "Skipping tax class resolution: line total unavailable for tax_amount"
+            )
+            return None
+
+        rate = self._resolve_tax_rate(
+            line["tax_amount"], line_total, country, state
+        )
+        if not rate:
+            return None
+        return self._normalize_tax_class(rate.get("class"))
+
+    def _build_line_item(self, line: dict, record: dict) -> dict:
+        quantity = line.get("quantity") or 0
+        item = {
+            "product_id": self._resolve_product_id(line),
+            "quantity": quantity,
+        }
+        if line.get("product_name"):
+            item["name"] = line["product_name"]
+
+        discount = line.get("discount_amount") or 0
+        unit_price = line.get("unit_price")
+        total_price = line.get("total_price")
+
+        if unit_price is not None:
+            subtotal = float(unit_price) * float(quantity)
+        elif total_price is not None:
+            subtotal = float(total_price) + float(discount)
+        else:
+            subtotal = None
+
+        if total_price is not None:
+            total = float(total_price)
+        elif subtotal is not None:
+            total = subtotal - float(discount)
+        else:
+            total = None
+
+        if subtotal is not None:
+            item["subtotal"] = self._wc_amount(subtotal)
+        if total is not None:
+            item["total"] = self._wc_amount(total)
+
+        if line.get("tax_code"):
+            item["tax_class"] = line["tax_code"]
+        elif line.get("tax_amount") is not None:
+            billing = record.get("billing_address") or {}
+            shipping = record.get("shipping_address") or {}
+            country = billing.get("country") or shipping.get("country") or ""
+            state = billing.get("state") or shipping.get("state") or ""
+            tax_class = self._resolve_tax_class_for_line(
+                line, total if total is not None else subtotal, country, state
+            )
+            if tax_class is not None:
+                item["tax_class"] = tax_class
+
+        return item
+
+    def _build_shipping_lines(self, record: dict) -> list:
+        shipping_lines = record.get("shipping_lines") or []
+        billing = record.get("billing_address") or {}
+        shipping = record.get("shipping_address") or {}
+        country = billing.get("country") or shipping.get("country") or ""
+        state = billing.get("state") or shipping.get("state") or ""
+
+        if shipping_lines:
+            mapped = []
+            for line in shipping_lines:
+                amount = line.get("total_price")
+                if amount is None:
+                    amount = line.get("subtotal")
+                if amount is None:
+                    continue
+                method = line.get("code") or line.get("carrier") or "Shipping"
+                # shipping_lines.total_tax is read-only in the WC API. Tax is
+                # applied during calculate_totals when a matching rate has
+                # shipping=true, so resolve/create that rate here.
+                if line.get("total_tax") is not None:
+                    self._resolve_tax_rate(
+                        line["total_tax"],
+                        amount,
+                        country,
+                        state,
+                        apply_to_shipping=True,
+                    )
+                mapped.append(
+                    {
+                        "method_id": line.get("id") or method,
+                        "method_title": method,
+                        "total": self._wc_amount(amount),
+                    }
+                )
+            if mapped:
+                return mapped
+        if record.get("total_shipping") is not None:
+            return [{"total": self._wc_amount(record["total_shipping"])}]
+        return []
+
+    def _build_fee_lines(self, record: dict) -> list:
+        total_discount = record.get("total_discount")
+        if not total_discount:
+            return []
+        return [
+            {
+                "name": "Discount",
+                "total": self._wc_amount(-abs(float(total_discount))),
+                "tax_status": "none",
+            }
+        ]
 
     def preprocess_record(self, record: dict, context: dict) -> dict:
         record = self.validate_input(record)
@@ -44,7 +425,7 @@ class SalesOrdersSink(WoocommerceSink):
                 "state": billing_address.get("state"),
                 "postcode": billing_address.get("postal_code"),
                 "country": billing_address.get("country"),
-                "email": billing_address.get("customer_email"),
+                "email": record.get("billing_email") or record.get("customer_email"),
             }
         if shipping_address:
             mapping["shipping"] = {
@@ -57,10 +438,12 @@ class SalesOrdersSink(WoocommerceSink):
                 "postcode": shipping_address.get("postal_code"),
                 "country": shipping_address.get("country"),
             }
-            if shipping_address.get("total_shipping"):
-                mapping["shipping_lines"] = [
-                    {"total": shipping_address["total_shipping"]}
-                ]
+
+        if record.get("currency"):
+            mapping["currency"] = record["currency"]
+        if record.get("payment_method"):
+            mapping["payment_method"] = record["payment_method"]
+
         status = record.get("status")
         fulfilled = record.get("fulfilled")
         if fulfilled:
@@ -82,24 +465,20 @@ class SalesOrdersSink(WoocommerceSink):
             id = next((c["id"] for c in customer), None)
             mapping["customer_id"] = id
 
+        # Resolve product tax classes before shipping so shipping can reuse the
+        # same rate and flip shipping=true when shipping tax is present.
         if record["line_items"]:
-            if "line_items" not in mapping:
-                mapping["line_items"] = []
-            for line in record["line_items"]:
-                if line.get("product_id"):
-                    item = {
-                        "product_id": line["product_id"],
-                        "quantity": line["quantity"],
-                    }
-                elif line.get("sku"):
-                    product = self.get_reference_data(
-                        "products", filter={"sku": line["sku"]}
-                    )
-                    id = next(p["id"] for p in product)
-                    item = {"product_id": id, "quantity": line["quantity"]}
-                else:
-                    raise Exception("Product not found.")
-                mapping["line_items"].append(item)
+            mapping["line_items"] = [
+                self._build_line_item(line, record) for line in record["line_items"]
+            ]
+
+        shipping_lines = self._build_shipping_lines(record)
+        if shipping_lines:
+            mapping["shipping_lines"] = shipping_lines
+
+        fee_lines = self._build_fee_lines(record)
+        if fee_lines:
+            mapping["fee_lines"] = fee_lines
 
         return self.validate_output(mapping)
 
