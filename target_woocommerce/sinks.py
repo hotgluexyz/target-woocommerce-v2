@@ -53,6 +53,8 @@ class SalesOrdersSink(WoocommerceSink):
     def _create_tax_rate(
         self, tax_amount, total_price, country: str, state: str, apply_to_shipping=False
     ):
+        if not float(total_price):
+            return ""
         rate_pct = round(float(tax_amount) / float(total_price) * 100, 2)
         tax_class = self._tax_class(rate_pct)
         self.request_api(
@@ -135,7 +137,7 @@ class SalesOrdersSink(WoocommerceSink):
             id = next((c["id"] for c in customer), None)
             mapping["customer_id"] = id
 
-        address = billing_address or shipping_address
+        address = billing_address or shipping_address or {}
         country = address.get("country") or ""
         state = address.get("state") or ""
         if record["line_items"]:
@@ -156,7 +158,10 @@ class SalesOrdersSink(WoocommerceSink):
         if record.get("shipping_lines"):
             mapping["shipping_lines"] = []
             for line in record["shipping_lines"]:
-                shipping_line = {"total": self._wc_amount(line["total_price"])}
+                shipping_line = {
+                    "method_id": line["id"],
+                    "total": self._wc_amount(line["total_price"]),
+                }
                 if line.get("total_tax") is not None:
                     tax_class = self._create_tax_rate(
                         line["total_tax"],
