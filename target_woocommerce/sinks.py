@@ -13,8 +13,316 @@ class SalesOrdersSink(WoocommerceSink):
     endpoint = "orders"
     unified_schema = SalesOrder
     name = SalesOrder.Stream.name
+    SHIPPING_TAX_CLASS_SETTING = "settings/tax/woocommerce_shipping_tax_class"
+
+    @staticmethod
+    def _wc_amount(value) -> str:
+        return f"{float(value):.2f}"
+
+    @staticmethod
+    def _normalize_tax_class(tax_class) -> str:
+        if not tax_class or tax_class == "standard":
+            return ""
+        return tax_class
+
+    @staticmethod
+    def _compute_tax_rate_pct(tax_amount, base_amount):
+        """Exclusive tax % for this order: tax_amount / total_price."""
+        if tax_amount is None or base_amount is None:
+            return None
+        tax_amount = float(tax_amount)
+        base_amount = float(base_amount)
+        if tax_amount == 0:
+            return 0.0
+        if base_amount <= 0:
+            return None
+        return round(tax_amount / base_amount * 100, 2)
+
+    @staticmethod
+    def _trove_tax_names(rate_pct: float):
+        label = f"{rate_pct:g}%"
+        return f"Trove {label}", f"trove-{rate_pct:g}".replace(".", "-")
+
+    @staticmethod
+    def _is_trove_rate(rate: dict) -> bool:
+        name = rate.get("name") or ""
+        tax_class = rate.get("class") or ""
+        return name.startswith("Trove ") or tax_class.startswith("trove-")
+
+    @cached_property
+    def tax_rates(self):
+        return self.get_reference_data("taxes")
+
+    @cached_property
+    def tax_classes(self):
+        return self.request_api("GET", "taxes/classes").json()
+
+    def _resolve_product_id(self, line: dict):
+        if line.get("product_id"):
+            return line["product_id"]
+        if line.get("sku"):
+            product = self.get_reference_data(
+                "products", filter={"sku": line["sku"]}
+            )
+            return next(p["id"] for p in product)
+        raise Exception("Product not found.")
+
+    @staticmethod
+    def _rate_applies_to_address(rate: dict, country: str, state: str) -> bool:
+        rate_country = (rate.get("country") or "").upper()
+        rate_state = (rate.get("state") or "").upper()
+        country = (country or "").upper()
+        state = (state or "").upper()
+        if rate_country and country and rate_country != country:
+            return False
+        if rate_state and state and rate_state != state:
+            return False
+        return True
+
+    def _ensure_tax_class(self, name: str, slug_hint: str) -> str:
+        for tax_class in self.tax_classes:
+            if tax_class.get("name") == name or tax_class.get("slug") == slug_hint:
+                return self._normalize_tax_class(tax_class.get("slug"))
+
+        self.logger.info(f"Creating WooCommerce tax class '{name}'")
+        created = self.request_api(
+            "POST", "taxes/classes", request_data={"name": name}
+        ).json()
+        self.tax_classes.append(created)
+        return self._normalize_tax_class(created.get("slug") or slug_hint)
+
+    def _create_tax_rate(
+        self, rate_pct: float, country: str, state: str, apply_to_shipping: bool = False
+    ) -> dict:
+        rate_pct = round(float(rate_pct), 2)
+        class_name, slug_hint = self._trove_tax_names(rate_pct)
+        tax_class = self._ensure_tax_class(class_name, slug_hint)
+
+        payload = {
+            "country": country or "",
+            "state": state or "",
+            "rate": f"{rate_pct:.4f}",
+            "name": class_name,
+            "class": tax_class or "standard",
+            "shipping": bool(apply_to_shipping),
+        }
+        self.logger.info(
+            f"Creating WooCommerce tax rate {class_name} for "
+            f"country={country or '*'} state={state or '*'} "
+            f"(shipping={apply_to_shipping})"
+        )
+        created = self.request_api("POST", "taxes", request_data=payload).json()
+        self.tax_rates.append(created)
+        return created
+
+    @staticmethod
+    def _rate_has_shipping(rate: dict) -> bool:
+        return rate.get("shipping") in (True, 1, "1", "true", "True")
+
+    def _replace_cached_tax_rate(self, rate: dict) -> dict:
+        rate_id = rate.get("id")
+        for index, existing in enumerate(self.tax_rates):
+            if existing.get("id") == rate_id:
+                self.tax_rates[index] = rate
+                return rate
+        self.tax_rates.append(rate)
+        return rate
+
+    def _enable_shipping_on_rate(self, rate: dict) -> dict:
+        rate_id = rate.get("id")
+        if rate_id is None or self._rate_has_shipping(rate):
+            return rate
+
+        self.logger.info(
+            f"Enabling shipping on WooCommerce tax rate "
+            f"{rate.get('rate')}% (id={rate_id})"
+        )
+        updated = self.request_api(
+            "PUT", f"taxes/{rate_id}", request_data={"shipping": True}
+        ).json()
+        return self._replace_cached_tax_rate(updated)
+
+    def _find_trove_rate(self, rate_pct: float, country: str, state: str):
+        """Reuse only an exact Trove rate computed for this %, never store defaults."""
+        class_name, slug_hint = self._trove_tax_names(rate_pct)
+        matches = []
+        for rate in self.tax_rates:
+            if not self._is_trove_rate(rate):
+                continue
+            try:
+                existing = round(float(rate.get("rate") or 0), 2)
+            except (TypeError, ValueError):
+                continue
+            if existing != rate_pct:
+                continue
+            rate_class = self._normalize_tax_class(rate.get("class"))
+            if rate.get("name") != class_name and rate_class != slug_hint:
+                continue
+            if not self._rate_applies_to_address(rate, country, state):
+                continue
+            matches.append(rate)
+        if not matches:
+            return None
+
+        def specificity(rate):
+            return (
+                0 if rate.get("state") else 1,
+                0 if rate.get("country") else 1,
+            )
+
+        return min(matches, key=specificity)
+
+    def _ensure_trove_tax_rate(
+        self,
+        tax_amount,
+        base_amount,
+        country: str,
+        state: str,
+        apply_to_shipping: bool = False,
+    ):
+        rate_pct = self._compute_tax_rate_pct(tax_amount, base_amount)
+        if rate_pct is None:
+            self.logger.warning(
+                f"Could not derive tax % from tax_amount={tax_amount} "
+                f"and total_price={base_amount}"
+            )
+            return None
+
+        existing = self._find_trove_rate(rate_pct, country, state)
+        if existing:
+            self.logger.info(
+                f"Using Trove tax rate {existing.get('rate')}% "
+                f"(class={existing.get('class') or 'standard'}) "
+                f"computed from tax_amount={tax_amount} / total_price={base_amount}"
+            )
+            if apply_to_shipping:
+                existing = self._enable_shipping_on_rate(existing)
+            return existing
+
+        return self._create_tax_rate(
+            rate_pct, country, state, apply_to_shipping=apply_to_shipping
+        )
+
+    def _order_tax_location(self, record: dict):
+        billing = record.get("billing_address") or {}
+        shipping = record.get("shipping_address") or {}
+        country = billing.get("country") or shipping.get("country") or ""
+        state = billing.get("state") or shipping.get("state") or ""
+        return country, state
+
+    def _get_shipping_tax_class_setting(self):
+        response = self.request_api("GET", self.SHIPPING_TAX_CLASS_SETTING)
+        return response.json().get("value")
+
+    def _set_shipping_tax_class_setting(self, value):
+        self.logger.info(f"Setting WooCommerce shipping tax class to '{value}'")
+        self.request_api(
+            "PUT",
+            self.SHIPPING_TAX_CLASS_SETTING,
+            request_data={"value": value},
+        )
+
+    def _build_line_item(self, line: dict, record: dict) -> dict:
+        quantity = line.get("quantity") or 0
+        item = {
+            "product_id": self._resolve_product_id(line),
+            "quantity": quantity,
+        }
+        if line.get("product_name"):
+            item["name"] = line["product_name"]
+
+        discount = line.get("discount_amount") or 0
+        unit_price = line.get("unit_price")
+        total_price = line.get("total_price")
+
+        if unit_price is not None:
+            subtotal = float(unit_price) * float(quantity)
+        elif total_price is not None:
+            subtotal = float(total_price) + float(discount)
+        else:
+            subtotal = None
+
+        if total_price is not None:
+            total = float(total_price)
+        elif subtotal is not None:
+            total = subtotal - float(discount)
+        else:
+            total = None
+
+        if subtotal is not None:
+            item["subtotal"] = self._wc_amount(subtotal)
+        if total is not None:
+            item["total"] = self._wc_amount(total)
+
+        if line.get("tax_code"):
+            item["tax_class"] = line["tax_code"]
+        elif line.get("tax_amount") is not None:
+            country, state = self._order_tax_location(record)
+            rate = self._ensure_trove_tax_rate(
+                line["tax_amount"],
+                total if total is not None else subtotal,
+                country,
+                state,
+            )
+            if rate:
+                item["tax_class"] = self._normalize_tax_class(rate.get("class"))
+
+        return item
+
+    def _build_shipping_lines(self, record: dict) -> list:
+        shipping_lines = record.get("shipping_lines") or []
+        country, state = self._order_tax_location(record)
+
+        if shipping_lines:
+            mapped = []
+            for line in shipping_lines:
+                amount = line.get("total_price")
+                if amount is None:
+                    amount = line.get("subtotal")
+                if amount is None:
+                    continue
+                method = line.get("code") or line.get("carrier") or "Shipping"
+                shipping_line = {
+                    "method_id": line.get("id") or method,
+                    "method_title": method,
+                    "total": self._wc_amount(amount),
+                }
+                if line.get("total_tax") is not None:
+                    shipping_line["total_tax"] = self._wc_amount(line["total_tax"])
+                    rate = self._ensure_trove_tax_rate(
+                        line["total_tax"],
+                        amount,
+                        country,
+                        state,
+                        apply_to_shipping=True,
+                    )
+                    if rate:
+                        tax_class = self._normalize_tax_class(rate.get("class"))
+                        shipping_line["tax_class"] = tax_class
+                        # WC calculates shipping tax from this store setting,
+                        # not from shipping_lines[].total_tax (read-only).
+                        self._pending_shipping_tax_class = tax_class or "standard"
+                mapped.append(shipping_line)
+            if mapped:
+                return mapped
+        if record.get("total_shipping") is not None:
+            return [{"total": self._wc_amount(record["total_shipping"])}]
+        return []
+
+    def _build_fee_lines(self, record: dict) -> list:
+        total_discount = record.get("total_discount")
+        if not total_discount:
+            return []
+        return [
+            {
+                "name": "Discount",
+                "total": self._wc_amount(-abs(float(total_discount))),
+                "tax_status": "none",
+            }
+        ]
 
     def preprocess_record(self, record: dict, context: dict) -> dict:
+        self._pending_shipping_tax_class = None
         record = self.validate_input(record)
         if record.get("customer_name"):
             customer_name = record.get("customer_name").split(" ")
@@ -44,7 +352,7 @@ class SalesOrdersSink(WoocommerceSink):
                 "state": billing_address.get("state"),
                 "postcode": billing_address.get("postal_code"),
                 "country": billing_address.get("country"),
-                "email": billing_address.get("customer_email"),
+                "email": record.get("billing_email") or record.get("customer_email"),
             }
         if shipping_address:
             mapping["shipping"] = {
@@ -57,10 +365,12 @@ class SalesOrdersSink(WoocommerceSink):
                 "postcode": shipping_address.get("postal_code"),
                 "country": shipping_address.get("country"),
             }
-            if shipping_address.get("total_shipping"):
-                mapping["shipping_lines"] = [
-                    {"total": shipping_address["total_shipping"]}
-                ]
+
+        if record.get("currency"):
+            mapping["currency"] = record["currency"]
+        if record.get("payment_method"):
+            mapping["payment_method"] = record["payment_method"]
+
         status = record.get("status")
         fulfilled = record.get("fulfilled")
         if fulfilled:
@@ -82,28 +392,24 @@ class SalesOrdersSink(WoocommerceSink):
             id = next((c["id"] for c in customer), None)
             mapping["customer_id"] = id
 
+        # Resolve product tax classes before shipping so shipping can reuse the
+        # same rate and flip shipping=true when shipping tax is present.
         if record["line_items"]:
-            if "line_items" not in mapping:
-                mapping["line_items"] = []
-            for line in record["line_items"]:
-                if line.get("product_id"):
-                    item = {
-                        "product_id": line["product_id"],
-                        "quantity": line["quantity"],
-                    }
-                elif line.get("sku"):
-                    product = self.get_reference_data(
-                        "products", filter={"sku": line["sku"]}
-                    )
-                    id = next(p["id"] for p in product)
-                    item = {"product_id": id, "quantity": line["quantity"]}
-                else:
-                    raise Exception("Product not found.")
-                mapping["line_items"].append(item)
+            mapping["line_items"] = [
+                self._build_line_item(line, record) for line in record["line_items"]
+            ]
+
+        shipping_lines = self._build_shipping_lines(record)
+        if shipping_lines:
+            mapping["shipping_lines"] = shipping_lines
+
+        fee_lines = self._build_fee_lines(record)
+        if fee_lines:
+            mapping["fee_lines"] = fee_lines
 
         return self.validate_output(mapping)
 
-    def upsert_record(self, record: dict, context: dict) -> None:
+    def _upsert_order(self, record: dict):
         if "id" in record:
             endpoint = f"orders/{record['id']}"
             response = self.request_api(
@@ -113,11 +419,39 @@ class SalesOrdersSink(WoocommerceSink):
             id = order_response.get("id")
             self.logger.info(f"{self.name} {id} updated.")
             return id, response.ok, {"updated": True}
-        else:
-            response = self.request_api("POST", request_data=record)
-            id = response.json().get("id")
-            self.logger.info(f"{self.name} created with id: {id}")
-            return id, response.ok, dict()
+
+        response = self.request_api("POST", request_data=record)
+        id = response.json().get("id")
+        self.logger.info(f"{self.name} created with id: {id}")
+        return id, response.ok, dict()
+
+    def upsert_record(self, record: dict, context: dict) -> None:
+        shipping_tax_class = getattr(self, "_pending_shipping_tax_class", None)
+        if not shipping_tax_class:
+            return self._upsert_order(record)
+
+        try:
+            original = self._get_shipping_tax_class_setting()
+        except Exception as exc:
+            self.logger.warning(
+                f"Could not read shipping tax class setting; "
+                f"creating order without switching it: {exc}"
+            )
+            return self._upsert_order(record)
+
+        if original == shipping_tax_class:
+            return self._upsert_order(record)
+
+        try:
+            self._set_shipping_tax_class_setting(shipping_tax_class)
+            return self._upsert_order(record)
+        finally:
+            try:
+                self._set_shipping_tax_class_setting(original)
+            except Exception as exc:
+                self.logger.warning(
+                    f"Failed to restore shipping tax class '{original}': {exc}"
+                )
 
 
 
