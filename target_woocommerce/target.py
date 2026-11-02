@@ -39,6 +39,12 @@ class TargetWoocommerce(TargetHotglue):
         th.Property("consumer_key", th.StringType, required=True),
         th.Property("consumer_secret", th.StringType, required=True),
         th.Property("site_url", th.StringType, required=True),
+        th.Property(
+            "create_tax_class_if_none_exists",
+            th.ObjectType(
+                th.Property("tax_class_prefix", th.StringType, required=True),
+            ),
+        ),
     ).to_dict()
 
 
