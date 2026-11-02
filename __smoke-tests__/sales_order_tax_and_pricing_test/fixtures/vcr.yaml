@@ -1,0 +1,309 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Type:
+      - application/json
+      User-Agent:
+      - Mozilla/5.0 (Linux; Android 7.1.2; LM-X210(G) Build/N2G47H) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/68.0.3440.85 Mobile Safari/537.36
+    method: GET
+    uri: http://127.0.0.1:18080/wp-json/wc/v3/taxes?per_page=100&order=asc&page=1
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 02 Nov 2026 18:44:55 GMT
+      Server:
+      - BaseHTTP/0.6 Python/3.10.21
+      X-WP-TotalPages:
+      - '1'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Type:
+      - application/json
+      User-Agent:
+      - Mozilla/5.0 (Linux; Android 7.0; SM-A510F Build/NRD90M; wv) AppleWebKit/537.36
+        (KHTML, like Gecko) Version/4.0 Chrome/56.0.2924.87 Mobile Safari/537.36
+    method: GET
+    uri: http://127.0.0.1:18080/wp-json/wc/v3/taxes/classes
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 02 Nov 2026 18:44:55 GMT
+      Server:
+      - BaseHTTP/0.6 Python/3.10.21
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"name": "Trove 10%"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '21'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - Mozilla/5.0 (Linux; Android 7.0; SAMSUNG-SM-G930A Build/NRD90M) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/65.0.3325.109 Mobile Safari/537.36
+    method: POST
+    uri: http://127.0.0.1:18080/wp-json/wc/v3/taxes/classes
+  response:
+    body:
+      string: '{"id": 7, "name": "Trove 10%", "slug": "trove-10"}'
+    headers:
+      Content-Length:
+      - '50'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 02 Nov 2026 18:44:55 GMT
+      Server:
+      - BaseHTTP/0.6 Python/3.10.21
+    status:
+      code: 201
+      message: Created
+- request:
+    body: '{"country": "US", "state": "CA", "rate": "10.0000", "name": "Trove 10%",
+      "class": "trove-10", "shipping": false}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '112'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - Mozilla/5.0 (Linux; Android 4.4.4; SM-A300FU Build/KTU84P) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/43.0.2357.93 Mobile Safari/537.36
+    method: POST
+    uri: http://127.0.0.1:18080/wp-json/wc/v3/taxes
+  response:
+    body:
+      string: '{"country": "US", "state": "CA", "rate": "10.0000", "name": "Trove
+        10%", "class": "trove-10", "shipping": false, "id": 42}'
+    headers:
+      Content-Length:
+      - '122'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 02 Nov 2026 18:44:55 GMT
+      Server:
+      - BaseHTTP/0.6 Python/3.10.21
+    status:
+      code: 201
+      message: Created
+- request:
+    body: '{"shipping": true}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '18'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - Mozilla/5.0 (Linux; Android 6.0; HUAWEI VNS-L23 Build/HUAWEIVNS-L23; wv) AppleWebKit/537.36
+        (KHTML, like Gecko) Version/4.0 Chrome/69.0.3497.100 Mobile Safari/537.36
+        [FB_IAB/FB4A;FBAV/195.0.0.35.99;]
+    method: PUT
+    uri: http://127.0.0.1:18080/wp-json/wc/v3/taxes/42
+  response:
+    body:
+      string: '{"id": 42, "rate": "10.0000", "name": "Trove 10%", "class": "trove-10",
+        "country": "US", "state": "CA", "shipping": true}'
+    headers:
+      Content-Length:
+      - '121'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 02 Nov 2026 18:44:55 GMT
+      Server:
+      - BaseHTTP/0.6 Python/3.10.21
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Type:
+      - application/json
+      User-Agent:
+      - Mozilla/5.0 (Linux; Android 6.0.1; SM-T800 Build/MMB29K) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/59.0.3071.125 Safari/537.36
+    method: GET
+    uri: http://127.0.0.1:18080/wp-json/wc/v3/settings/tax/woocommerce_shipping_tax_class
+  response:
+    body:
+      string: '{"id": "woocommerce_shipping_tax_class", "value": "standard"}'
+    headers:
+      Content-Length:
+      - '61'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 02 Nov 2026 18:44:55 GMT
+      Server:
+      - BaseHTTP/0.6 Python/3.10.21
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"value": "trove-10"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '21'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - Mozilla/5.0 (Linux; Android 4.3; Z797C Build/JLS36C) AppleWebKit/537.36 (KHTML,
+        like Gecko) Chrome/67.0.3396.87 Mobile Safari/537.36
+    method: PUT
+    uri: http://127.0.0.1:18080/wp-json/wc/v3/settings/tax/woocommerce_shipping_tax_class
+  response:
+    body:
+      string: '{"id": "woocommerce_shipping_tax_class", "value": "trove-10"}'
+    headers:
+      Content-Length:
+      - '61'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 02 Nov 2026 18:44:55 GMT
+      Server:
+      - BaseHTTP/0.6 Python/3.10.21
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"status": "completed", "billing": {"first_name": "Smoke", "last_name":
+      "Test", "address_1": "123 Test Street", "city": "San Francisco", "state": "CA",
+      "postcode": "94105", "country": "US", "email": "billing@example.com"}, "shipping":
+      {"first_name": "Smoke", "last_name": "Test", "address_1": "123 Test Street",
+      "city": "San Francisco", "state": "CA", "postcode": "94105", "country": "US"},
+      "currency": "USD", "payment_method": "card", "set_paid": true, "line_items":
+      [{"product_id": "101", "quantity": 2.0, "name": "Test Widget", "subtotal": "120.00",
+      "total": "100.00", "tax_class": "trove-10"}], "shipping_lines": [{"method_id":
+      "flat_rate", "method_title": "Flat rate", "total": "20.00", "total_tax": "2.00",
+      "tax_class": "trove-10"}], "fee_lines": [{"name": "Discount", "total": "-5.00",
+      "tax_status": "none"}]}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '816'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/41.0.3842.172 Mobile Safari/537.36
+    method: POST
+    uri: http://127.0.0.1:18080/wp-json/wc/v3/orders
+  response:
+    body:
+      string: '{"id": 9001}'
+    headers:
+      Content-Length:
+      - '12'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 02 Nov 2026 18:44:55 GMT
+      Server:
+      - BaseHTTP/0.6 Python/3.10.21
+    status:
+      code: 201
+      message: Created
+- request:
+    body: '{"value": "standard"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '21'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - Mozilla/5.0 (Linux; Android 5.1; Lenovo TAB 2 A8-50LC Build/LMY47D) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/60.0.3112.116 Safari/537.36
+    method: PUT
+    uri: http://127.0.0.1:18080/wp-json/wc/v3/settings/tax/woocommerce_shipping_tax_class
+  response:
+    body:
+      string: '{"id": "woocommerce_shipping_tax_class", "value": "standard"}'
+    headers:
+      Content-Length:
+      - '61'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 02 Nov 2026 18:44:55 GMT
+      Server:
+      - BaseHTTP/0.6 Python/3.10.21
+    status:
+      code: 200
+      message: OK
+version: 1

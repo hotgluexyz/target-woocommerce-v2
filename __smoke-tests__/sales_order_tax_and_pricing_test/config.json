@@ -1,0 +1,5 @@
+{
+    "consumer_key": "test-key",
+    "consumer_secret": "test-secret",
+    "site_url": "http://127.0.0.1:18080"
+}
