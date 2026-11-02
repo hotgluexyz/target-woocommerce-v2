@@ -11,8 +11,8 @@ interactions:
       Content-Type:
       - application/json
       User-Agent:
-      - Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML,
-        like Gecko) Chrome/59.0.3071.104 Safari/537.36
+      - Mozilla/5.0 (Linux; Android 4.2.2; HUAWEI Y330-U15 Build/HuaweiY330-U15) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/66.0.3359.126 Mobile Safari/537.36
     method: GET
     uri: http://127.0.0.1:18080/wp-json/wc/v3/taxes/classes
   response:
@@ -24,7 +24,7 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Mon, 02 Nov 2026 22:28:10 GMT
+      - Mon, 02 Nov 2026 22:40:16 GMT
       Server:
       - BaseHTTP/0.6 Python/3.10.21
     status:
@@ -44,20 +44,20 @@ interactions:
       Content-Type:
       - application/json
       User-Agent:
-      - Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko)
-        Chrome/43.0.2371.67 Safari/537.36
+      - Mozilla/5.0 (Linux; Android 8.0.0; ANE-LX1 Build/HUAWEIANE-LX1) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/65.0.3325.109 Mobile Safari/537.36
     method: POST
     uri: http://127.0.0.1:18080/wp-json/wc/v3/taxes/classes
   response:
     body:
-      string: '{"id": 7, "name": "Trove 10%", "slug": "trove-10"}'
+      string: '{"name": "Trove 10%", "slug": "trove-10"}'
     headers:
       Content-Length:
-      - '50'
+      - '41'
       Content-Type:
       - application/json
       Date:
-      - Mon, 02 Nov 2026 22:28:10 GMT
+      - Mon, 02 Nov 2026 22:40:16 GMT
       Server:
       - BaseHTTP/0.6 Python/3.10.21
     status:
@@ -78,21 +78,21 @@ interactions:
       Content-Type:
       - application/json
       User-Agent:
-      - Mozilla/5.0 (Linux; Android 4.2.2; GT-P5113 Build/JDQ39) AppleWebKit/537.36
-        (KHTML, like Gecko) Chrome/59.0.3071.125 Safari/537.36
+      - Mozilla/5.0 (Linux; Android 4.2.2; 2013023 Build/HM2013023) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/55.0.2883.91 Mobile Safari/537.36
     method: POST
     uri: http://127.0.0.1:18080/wp-json/wc/v3/taxes
   response:
     body:
       string: '{"country": "US", "state": "CA", "rate": "10.0000", "name": "10%",
-        "class": "trove-10", "shipping": false, "id": 42}'
+        "class": "trove-10", "shipping": false}'
     headers:
       Content-Length:
-      - '116'
+      - '106'
       Content-Type:
       - application/json
       Date:
-      - Mon, 02 Nov 2026 22:28:10 GMT
+      - Mon, 02 Nov 2026 22:40:16 GMT
       Server:
       - BaseHTTP/0.6 Python/3.10.21
     status:
@@ -113,21 +113,21 @@ interactions:
       Content-Type:
       - application/json
       User-Agent:
-      - Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36
-        (KHTML, like Gecko) Chrome/48.0.6326.330 Mobile Safari/537.36
+      - Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
+        Gecko) Chrome/63.0.3202.4 Safari/537.36
     method: POST
     uri: http://127.0.0.1:18080/wp-json/wc/v3/taxes
   response:
     body:
       string: '{"country": "US", "state": "CA", "rate": "10.0000", "name": "10%",
-        "class": "trove-10", "shipping": true, "id": 42}'
+        "class": "trove-10", "shipping": true}'
     headers:
       Content-Length:
-      - '115'
+      - '105'
       Content-Type:
       - application/json
       Date:
-      - Mon, 02 Nov 2026 22:28:10 GMT
+      - Mon, 02 Nov 2026 22:40:16 GMT
       Server:
       - BaseHTTP/0.6 Python/3.10.21
     status:
@@ -145,20 +145,20 @@ interactions:
       Content-Type:
       - application/json
       User-Agent:
-      - Mozilla/5.0 (Linux; Android 6.0.1; Moto G Play Build/MPIS24.241-2.47-10) AppleWebKit/537.36
-        (KHTML, like Gecko) Chrome/63.0.3239.111 Mobile Safari/537.36
+      - Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)
+        Chrome/56.0.2948.98 Safari/537.36
     method: GET
     uri: http://127.0.0.1:18080/wp-json/wc/v3/settings/tax/woocommerce_shipping_tax_class
   response:
     body:
-      string: '{"id": "woocommerce_shipping_tax_class", "value": "standard"}'
+      string: '{"value": ""}'
     headers:
       Content-Length:
-      - '61'
+      - '13'
       Content-Type:
       - application/json
       Date:
-      - Mon, 02 Nov 2026 22:28:10 GMT
+      - Mon, 02 Nov 2026 22:40:16 GMT
       Server:
       - BaseHTTP/0.6 Python/3.10.21
     status:
@@ -178,20 +178,20 @@ interactions:
       Content-Type:
       - application/json
       User-Agent:
-      - Mozilla/5.0 (Linux; Android 4.2.2; Micromax A96 Build/JDQ39) AppleWebKit/537.36
-        (KHTML, like Gecko) Chrome/50.0.2661.89 Mobile Safari/537.36
+      - Mozilla/5.0 (Linux; Android 7.0; Infinix NOTE 3 Build/NRD90M) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/57.0.2987.132 Mobile Safari/537.36
     method: PUT
     uri: http://127.0.0.1:18080/wp-json/wc/v3/settings/tax/woocommerce_shipping_tax_class
   response:
     body:
-      string: '{"id": "woocommerce_shipping_tax_class", "value": "trove-10"}'
+      string: '{"value": "trove-10"}'
     headers:
       Content-Length:
-      - '61'
+      - '21'
       Content-Type:
       - application/json
       Date:
-      - Mon, 02 Nov 2026 22:28:10 GMT
+      - Mon, 02 Nov 2026 22:40:16 GMT
       Server:
       - BaseHTTP/0.6 Python/3.10.21
     status:
@@ -200,15 +200,11 @@ interactions:
 - request:
     body: '{"status": "completed", "billing": {"first_name": "Smoke", "last_name":
       "Test", "address_1": "123 Test Street", "city": "San Francisco", "state": "CA",
-      "postcode": "94105", "country": "US", "email": "billing@example.com"}, "shipping":
-      {"first_name": "Smoke", "last_name": "Test", "address_1": "123 Test Street",
-      "city": "San Francisco", "state": "CA", "postcode": "94105", "country": "US"},
-      "currency": "USD", "payment_method": "card", "set_paid": true, "line_items":
-      [{"product_id": "101", "quantity": 2.0, "name": "Test Widget", "subtotal": "120.00",
-      "total": "100.00", "tax_class": "trove-10"}], "shipping_lines": [{"method_id":
-      "flat_rate", "method_title": "Flat rate", "total": "20.00", "total_tax": "2.00",
-      "tax_class": "trove-10"}], "fee_lines": [{"name": "Discount", "total": "-5.00",
-      "tax_status": "none"}]}'
+      "postcode": "94105", "country": "US"}, "shipping": {"first_name": "Smoke", "last_name":
+      "Test", "address_1": "123 Test Street", "city": "San Francisco", "state": "CA",
+      "postcode": "94105", "country": "US"}, "set_paid": true, "line_items": [{"product_id":
+      "101", "quantity": 2.0, "tax_class": "trove-10"}], "shipping_lines": [{"total":
+      "20.00", "tax_class": "trove-10", "total_tax": "2.00"}]}'
     headers:
       Accept:
       - '*/*'
@@ -217,12 +213,12 @@ interactions:
       Connection:
       - keep-alive
       Content-Length:
-      - '816'
+      - '543'
       Content-Type:
       - application/json
       User-Agent:
-      - Mozilla/5.0 (Linux; Android 5.1.1; SM-T330 Build/LMY47X) AppleWebKit/537.36
-        (KHTML, like Gecko) Chrome/54.0.2840.68 Safari/537.36
+      - Mozilla/5.0 (Linux; Android 4.1.2; GT-N7105 Build/JZO54K) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/29.0.1547.72 Mobile Safari/537.36
     method: POST
     uri: http://127.0.0.1:18080/wp-json/wc/v3/orders
   response:
@@ -234,14 +230,14 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Mon, 02 Nov 2026 22:28:10 GMT
+      - Mon, 02 Nov 2026 22:40:16 GMT
       Server:
       - BaseHTTP/0.6 Python/3.10.21
     status:
       code: 201
       message: Created
 - request:
-    body: '{"value": "standard"}'
+    body: '{"value": ""}'
     headers:
       Accept:
       - '*/*'
@@ -250,24 +246,25 @@ interactions:
       Connection:
       - keep-alive
       Content-Length:
-      - '21'
+      - '13'
       Content-Type:
       - application/json
       User-Agent:
-      - Mozilla/5.0 (Linux; Android 5.1; Lenovo P1ma40 Build/LMY47D) AppleWebKit/537.36
-        (KHTML, like Gecko) Chrome/55.0.2883.91 Mobile Safari/537.36
+      - Mozilla/5.0 (Linux; Android 6.0.1; SM-G935F Build/MMB29K; wv) AppleWebKit/537.36
+        (KHTML, like Gecko) Version/4.0 Chrome/69.0.3497.100 Mobile Safari/537.36
+        [FB_IAB/FB4A;FBAV/192.0.0.34.85;]
     method: PUT
     uri: http://127.0.0.1:18080/wp-json/wc/v3/settings/tax/woocommerce_shipping_tax_class
   response:
     body:
-      string: '{"id": "woocommerce_shipping_tax_class", "value": "standard"}'
+      string: '{"value": ""}'
     headers:
       Content-Length:
-      - '61'
+      - '13'
       Content-Type:
       - application/json
       Date:
-      - Mon, 02 Nov 2026 22:28:10 GMT
+      - Mon, 02 Nov 2026 22:40:16 GMT
       Server:
       - BaseHTTP/0.6 Python/3.10.21
     status:
