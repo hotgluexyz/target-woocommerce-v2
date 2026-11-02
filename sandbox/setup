@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")" && pwd)"
+cd "$root"
+
+if ! command -v docker >/dev/null; then
+  echo "docker is required" >&2
+  exit 1
+fi
+
+docker compose up -d --remove-orphans db wordpress
+
+echo "Waiting for WordPress on http://localhost:8080 ..."
+for _ in $(seq 1 60); do
+  if curl -sf -o /dev/null http://localhost:8080/; then
+    break
+  fi
+  sleep 2
+done
+
+if ! curl -sf -o /dev/null http://localhost:8080/; then
+  echo "WordPress did not become ready in time" >&2
+  exit 1
+fi
+
+docker compose run --rm setup
+
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+root = Path.cwd()
+local_path = root / "local-config.json"
+secrets_path = root.parent / ".secrets" / "config.json"
+
+local = json.loads(local_path.read_text())
+config = json.loads(secrets_path.read_text()) if secrets_path.exists() else {}
+config.update(local)
+secrets_path.parent.mkdir(parents=True, exist_ok=True)
+secrets_path.write_text(json.dumps(config, indent=4) + "\n")
+print(f"Updated {secrets_path}")
+PY
+
+key="$(python3 -c 'import json; print(json.load(open("local-config.json"))["consumer_key"])')"
+secret="$(python3 -c 'import json; print(json.load(open("local-config.json"))["consumer_secret"])')"
+code="$(curl -s -o /dev/null -w '%{http_code}' -u "$key:$secret" 'http://localhost:8080/wp-json/wc/v3/products?per_page=1')"
+if [ "$code" != "200" ]; then
+  echo "WooCommerce REST check failed (HTTP $code)" >&2
+  exit 1
+fi
+
+echo ""
+echo "Sandbox is ready."
+echo "  Store:  http://localhost:8080"
+echo "  Admin:  admin / admin"
+echo "  Config: .secrets/config.json"
+echo ""
+echo "Run the target:"
+echo "  cat .secrets/data.singer | poetry run target-woocommerce-v2 --config .secrets/config.json"
