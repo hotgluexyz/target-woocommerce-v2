@@ -33,6 +33,7 @@ class SalesOrdersSink(WoocommerceSink):
 
         mapping["id"] = order_id
         mapping["status"] = record.get("status")
+        mapping.update(self.custom_fields_payload(record))
 
         if billing_address:
             mapping["billing"] = {
@@ -99,6 +100,7 @@ class SalesOrdersSink(WoocommerceSink):
                     item = {"product_id": id, "quantity": line["quantity"]}
                 else:
                     raise Exception("Product not found.")
+                item.update(self.custom_fields_payload(line))
                 mapping["line_items"].append(item)
 
         return self.validate_output(mapping)
@@ -321,6 +323,7 @@ class ProductSink(WoocommerceSink):
             "short_description": record.get("short_description"),
             "type": record["type"],
         }
+        mapping.update(self.custom_fields_payload(record))
 
         if record.get("id"):
             mapping["id"] = record["id"]
@@ -373,6 +376,7 @@ class ProductSink(WoocommerceSink):
                 if variant.get("id"):
                     product_var["id"] = variant["id"]
 
+                product_var.update(self.custom_fields_payload(variant))
                 product_var["attributes"] = []
 
                 if variant.get("options"):
@@ -436,6 +440,7 @@ class ProductSink(WoocommerceSink):
                 )
                 if product_id:
                     mapping["id"] = product_id["id"]
+                mapping.update(self.custom_fields_payload(record, variant))
 
         return self.validate_output(mapping)
 
