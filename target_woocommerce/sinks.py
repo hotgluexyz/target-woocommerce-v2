@@ -33,6 +33,7 @@ class SalesOrdersSink(WoocommerceSink):
 
         mapping["id"] = order_id
         mapping["status"] = record.get("status")
+        mapping["customer_note"] = record.get("order_notes")
         mapping.update(self.custom_fields_payload(record))
 
         if billing_address:

@@ -77,20 +77,25 @@ class WoocommerceSink(HotglueSink):
     def validate_input(self, record: dict):
         return self.unified_schema(**record).dict()
 
-    @staticmethod
-    def custom_fields_payload(*records):
+    def custom_fields_payload(self, *records):
         """Map unified custom fields to WooCommerce metadata.
 
         Later records override matching keys, allowing a simple product's
-        variant fields to take precedence over its parent fields.
+        variant fields to take precedence over its parent fields. Nameless
+        fields and null values are skipped. Metadata keys are passed through
+        unchanged.
         """
         metadata = {}
         for record in records:
             for field in record.get("custom_fields") or []:
                 name = field.get("name")
                 if not name:
-                    raise ValueError("Custom fields must have a non-empty name")
-                metadata[name] = {"key": name, "value": field.get("value")}
+                    self.logger.warning("Skipping custom field without a name.")
+                    continue
+                value = field.get("value")
+                if value is None:
+                    continue
+                metadata[name] = {"key": name, "value": value}
         return {"meta_data": list(metadata.values())} if metadata else {}
 
     def validate_output(self, mapping):
