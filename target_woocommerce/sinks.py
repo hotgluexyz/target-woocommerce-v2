@@ -33,7 +33,6 @@ class SalesOrdersSink(WoocommerceSink):
 
         mapping["id"] = order_id
         mapping["status"] = record.get("status")
-        mapping["currency"] = record.get("currency")
         mapping["customer_note"] = record.get("order_notes")
         mapping.update(self.custom_fields_payload(record))
 
@@ -102,8 +101,20 @@ class SalesOrdersSink(WoocommerceSink):
                     item = {"product_id": id, "quantity": line["quantity"]}
                 else:
                     raise Exception("Product not found.")
+                if line.get("unit_price") is not None and line.get("quantity") is not None:
+                    line_total = line.get("total_price")
+                    if line_total is None:
+                        line_total = line["unit_price"] * line["quantity"]
+                    item["subtotal"] = str(line["unit_price"] * line["quantity"])
+                    item["total"] = str(line_total)
                 item.update(self.custom_fields_payload(line))
                 mapping["line_items"].append(item)
+
+        if record.get("currency") and all(
+            line.get("unit_price") is not None and line.get("quantity") is not None
+            for line in record.get("line_items") or []
+        ):
+            mapping["currency"] = record["currency"]
 
         return self.validate_output(mapping)
 
