@@ -229,7 +229,7 @@ class UpdateInventorySink(WoocommerceSink):
 
             if record["operation"] == "subtract":
                 current_stock = current_stock - int(record["quantity"])
-            if record["operation"] == "set":
+            elif record["operation"] == "set":
                 current_stock = int(record["quantity"])
             else:
                 current_stock = current_stock + int(record["quantity"])
