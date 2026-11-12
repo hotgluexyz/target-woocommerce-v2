@@ -1,0 +1,2 @@
+{"type":"SCHEMA","stream":"OrderNotes","version":1,"key_properties":["id"],"schema":{"type":"object","properties":{"order_id":{"type":"string"},"author_name":{"type":"string"},"note":{"type":"string"},"customer_note":{"type":"boolean"}}}}
+{"type":"RECORD","stream":"OrderNotes","record":{"order_id":"1","author_name":"Store team","note":"Sample order packed for dispatch.","customer_note":false}}
