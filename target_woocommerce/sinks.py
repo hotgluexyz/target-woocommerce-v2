@@ -33,6 +33,7 @@ class SalesOrdersSink(WoocommerceSink):
 
         mapping["id"] = order_id
         mapping["status"] = record.get("status")
+        mapping["currency"] = record.get("currency")
         mapping["customer_note"] = record.get("order_notes")
         mapping.update(self.custom_fields_payload(record))
 
@@ -268,6 +269,14 @@ class UpdateInventorySink(WoocommerceSink):
         product_response = response.json()
         id = product_response.get("id")
         self.logger.info(f"{self.name} updated for id: {id}, new stock: {product_response.get('stock_quantity')}.")
+        if response.ok:
+            cached_products = self.product_variants if record.get("parent_id") else self.products
+            cached_product = next(
+                (p for p in cached_products if str(p["id"]) == str(record["id"])),
+                None,
+            )
+            if cached_product:
+                cached_product["stock_quantity"] = record["stock_quantity"]
         return id, response.ok, {"updated": True}
 
 class ProductSink(WoocommerceSink):
