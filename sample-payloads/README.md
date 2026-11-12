@@ -11,7 +11,7 @@ cat sample-payloads/order-notes.singer | target-woocommerce-v2 --config .secrets
 ```
 
 The product payload creates a variable product with two variations. The
-inventory payload then updates the variation by SKU, and the sales order uses
-the created product and variation SKUs. The sales order is created by the
-target, so copy its returned WooCommerce order ID into `order-notes.singer`'s
-`order_id` field before running the order note payload.
+inventory payload then updates a variation by SKU, and the sales order uses
+the created product SKU. The sales order is created by the target, so copy its
+returned WooCommerce order ID into `order-notes.singer`'s `order_id` field
+before running the order note payload.

@@ -101,20 +101,8 @@ class SalesOrdersSink(WoocommerceSink):
                     item = {"product_id": id, "quantity": line["quantity"]}
                 else:
                     raise Exception("Product not found.")
-                if line.get("unit_price") is not None and line.get("quantity") is not None:
-                    line_total = line.get("total_price")
-                    if line_total is None:
-                        line_total = line["unit_price"] * line["quantity"]
-                    item["subtotal"] = str(line["unit_price"] * line["quantity"])
-                    item["total"] = str(line_total)
                 item.update(self.custom_fields_payload(line))
                 mapping["line_items"].append(item)
-
-        if record.get("currency") and all(
-            line.get("unit_price") is not None and line.get("quantity") is not None
-            for line in record.get("line_items") or []
-        ):
-            mapping["currency"] = record["currency"]
 
         return self.validate_output(mapping)
 
@@ -241,7 +229,7 @@ class UpdateInventorySink(WoocommerceSink):
 
             if record["operation"] == "subtract":
                 current_stock = current_stock - int(record["quantity"])
-            elif record["operation"] == "set":
+            if record["operation"] == "set":
                 current_stock = int(record["quantity"])
             else:
                 current_stock = current_stock + int(record["quantity"])
@@ -280,14 +268,6 @@ class UpdateInventorySink(WoocommerceSink):
         product_response = response.json()
         id = product_response.get("id")
         self.logger.info(f"{self.name} updated for id: {id}, new stock: {product_response.get('stock_quantity')}.")
-        if response.ok:
-            cached_products = self.product_variants if record.get("parent_id") else self.products
-            cached_product = next(
-                (p for p in cached_products if str(p["id"]) == str(record["id"])),
-                None,
-            )
-            if cached_product:
-                cached_product["stock_quantity"] = record["stock_quantity"]
         return id, response.ok, {"updated": True}
 
 class ProductSink(WoocommerceSink):

@@ -1,6 +1,10 @@
 #!/bin/sh
 set -e
 
+wp() {
+  command wp --allow-root "$@"
+}
+
 until wp db check 2>/dev/null; do
   sleep 2
 done
@@ -15,7 +19,13 @@ if ! wp core is-installed 2>/dev/null; then
     --skip-email
 fi
 
-wp plugin is-active woocommerce 2>/dev/null || wp plugin install woocommerce --activate
+if ! wp plugin is-active woocommerce 2>/dev/null; then
+  if ! wp plugin install woocommerce --activate; then
+    curl -fL --retry 3 -o /tmp/woocommerce.zip \
+      https://downloads.wordpress.org/plugin/woocommerce.latest-stable.zip
+    wp plugin install /tmp/woocommerce.zip --activate
+  fi
+fi
 wp rewrite structure '/%postname%/' --hard
 
 HTACCESS=/var/www/html/.htaccess
