@@ -1,0 +1,2 @@
+{"type":"SCHEMA","stream":"UpdateInventory","version":1,"key_properties":["sku"],"schema":{"type":"object","properties":{"sku":{"type":"string"},"operation":{"type":"string"},"quantity":{"type":"integer"}}}}
+{"type":"RECORD","stream":"UpdateInventory","record":{"sku":"TRAIL-RUNNER-9-BLUE","operation":"subtract","quantity":2}}
